@@ -1,8 +1,7 @@
 // Get-Lost - Einstiegspunkt der Web-GUI
 //
-// Holt sich die Karte (aktuell vom PHP-Platzhalter in index.php, spaeter
-// von der echten Level-Generierung), baut das Tileset und zeichnet alles
-// auf den Canvas.
+// Holt sich die von app/maze-gen/main.ps1 generierte Karte (siehe
+// index.php), baut das Tileset und zeichnet alles auf den Canvas.
 //
 // Sobald es Spieler/Gegner/Key gibt: nicht ins Karten-Canvas reinzeichnen,
 // sondern als eigenes Element (weiteres <canvas> oder DOM-Element)
@@ -10,17 +9,17 @@
 // sie sich unabhaengig von der Karte bewegen, ohne alles neu zu zeichnen.
 
 import { createTileset, TILE_SIZE } from './tileset.js';
-import { createEmptyBorderMap, renderMap } from './mapRenderer.js';
+import { renderMap } from './mapRenderer.js';
 
 // Ganzzahliger Skalierungsfaktor, damit die Pixel-Art beim Hochskalieren
 // scharf bleibt (kein Weichzeichnen zwischen den Pixeln). Bei TILE_SIZE
 // 32px reicht 1:1 schon fuer eine gut sichtbare Groesse.
 const SCALE = 1;
 
-// window.__MAP__ wird von index.php gesetzt. Falls die Seite mal ohne PHP
-// (z. B. direkt als Datei) geoeffnet wird, dient der leere Rahmen als
-// Fallback, damit trotzdem etwas zu sehen ist.
-const map = window.__MAP__ ?? createEmptyBorderMap();
+// window.__MAP__ wird von index.php gesetzt - dort wird auch sichergestellt,
+// dass ueberhaupt eine generierte Karte existiert, bevor die Seite
+// ausgeliefert wird.
+const map = window.__MAP__;
 
 const tileset = createTileset();
 

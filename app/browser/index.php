@@ -3,39 +3,21 @@
 //
 // Liest die von app/maze-gen/main.ps1 generierte Karte ein (JSON-Datei,
 // im Docker-Setup ueber ein gemeinsames Volume bereitgestellt) und
-// reicht sie als JSON an die JavaScript-Seite (game.js) weiter. Gibt es
-// noch keine generierte Karte (z. B. beim lokalen Testen ohne Docker),
-// wird ersatzweise ein leerer Platzhalter-Rahmen gezeigt: aussen Wand,
-// innen Boden.
+// reicht sie als JSON an die JavaScript-Seite (game.js) weiter.
+//
+// Es gibt bewusst keinen Platzhalter-Fallback mehr: docker-compose.yml
+// sorgt dafuer, dass "maze-gen" die Karte erzeugt hat, bevor dieser
+// Container ueberhaupt startet (depends_on: service_completed_successfully).
+// Fehlt die Datei trotzdem, ist das ein echter Fehler in der Pipeline -
+// der soll sichtbar sein statt still hinter einem Platzhalter zu
+// verschwinden.
 
 declare(strict_types=1);
 
 /**
- * Baut eine rechteckige Platzhalter-Karte: aussen Wand ('#'), innen
- * Boden ('.'). Nur ein Fallback, falls (noch) keine generierte Karte
- * vorliegt.
- *
- * @return string[] Ein String pro Zeile
- */
-function buildEmptyBorderMap(int $width = 20, int $height = 14): array
-{
-    $rows = [];
-    for ($y = 0; $y < $height; $y++) {
-        $row = '';
-        for ($x = 0; $x < $width; $x++) {
-            $isBorder = ($x === 0 || $y === 0 || $x === $width - 1 || $y === $height - 1);
-            $row .= $isBorder ? '#' : '.';
-        }
-        $rows[] = $row;
-    }
-    return $rows;
-}
-
-/**
  * Liest die von der Map-Generierung geschriebene JSON-Datei ein
  * (siehe app/maze-gen/main.ps1). Gibt null zurueck, wenn die Datei
- * (noch) nicht existiert oder ungueltig ist - dann greift der
- * Platzhalter-Fallback.
+ * (noch) nicht existiert oder ungueltig ist.
  *
  * @return string[]|null
  */
@@ -64,7 +46,15 @@ function loadGeneratedMap(string $path): ?array
 }
 
 $mapInputPath = getenv('MAP_INPUT_PATH') ?: '/data/map.json';
-$map = loadGeneratedMap($mapInputPath) ?? buildEmptyBorderMap();
+$map = loadGeneratedMap($mapInputPath);
+
+if ($map === null) {
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "Noch keine Karte generiert (erwartet unter: $mapInputPath).\n";
+    echo "Lief der \"maze-gen\"-Service? Siehe app/browser/README.md.\n";
+    exit;
+}
 ?>
 <!doctype html>
 <html lang="de">
@@ -75,13 +65,11 @@ $map = loadGeneratedMap($mapInputPath) ?? buildEmptyBorderMap();
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div class="frame">
-        <canvas id="map"></canvas>
-    </div>
+    <canvas id="map"></canvas>
 
     <script>
-        // Karte kommt aus PHP (spaeter: Level-Generierung), gezeichnet
-        // wird sie rein in JavaScript (siehe game.js / mapRenderer.js).
+        // Karte kommt aus PHP, gezeichnet wird sie rein in JavaScript
+        // (siehe game.js / mapRenderer.js).
         window.__MAP__ = <?= json_encode($map, JSON_THROW_ON_ERROR) ?>;
     </script>
     <script type="module" src="game.js"></script>

@@ -8,18 +8,10 @@ html,
 body {
     margin: 0;
     height: 100%;
-    background: #14131c;
+    background: #000;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: system-ui, sans-serif;
-}
-
-.frame {
-    background: #0d0c13;
-    border: 2px solid #3d3b4e;
-    padding: 16px;
-    display: inline-block;
 }
 
 canvas#map {

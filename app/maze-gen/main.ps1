@@ -1,144 +1,324 @@
-# Get-Lost - Map-/Labyrinth-Generierung
-#
-# Erzeugt ein zufaelliges, garantiert vollstaendig begehbares Labyrinth
-# per "randomized depth-first search" (klassischer Backtracker-
-# Algorithmus) und schreibt es als JSON-Datei raus. Die Web-GUI
-# (app/browser/index.php) liest diese Datei ein und zeichnet die Karte -
-# das ist die Schnittstelle zwischen diesem Skript und dem Browser.
-#
-# Kartenformat (siehe app/browser/README.md):
-#   '#' = Wand, '.' = begehbarer Boden
-#
-# Aufruf z. B.:
-#   pwsh -File main.ps1
-#   pwsh -File main.ps1 -CellsWide 16 -CellsHigh 10 -Seed 42
-#
-# Ausgabepfad: $env:MAP_OUTPUT_PATH, falls gesetzt (im Docker-Setup ist
-# das ein gemeinsames Volume mit dem Browser-Container), sonst eine
-# lokale map.json neben diesem Skript.
-
 param(
-    [int]$CellsWide = 12,
-    [int]$CellsHigh = 9,
+    [int]$Width = 50,
+    [int]$Height = 20,
     # -1 = jedes Mal eine andere, zufaellige Karte
     [int]$Seed = -1
 )
 
-<#
-.SYNOPSIS
-    Erzeugt ein Labyrinth als Zellen-Gitter per randomisiertem Backtracker.
-.DESCRIPTION
-    Jede Zelle startet mit allen 4 Waenden (Bitmaske N/E/S/W). Der
-    Algorithmus besucht zufaellig benachbarte, noch unbesuchte Zellen und
-    reisst dabei die Wand zwischen ihnen ein, bis alle Zellen erreicht
-    sind - das Ergebnis ist ein "perfektes" Labyrinth (genau ein Weg
-    zwischen zwei beliebigen Zellen, keine Schleifen, keine isolierten
-    Bereiche).
-#>
-function New-MazeCells {
-    param(
-        [Parameter(Mandatory)][int]$CellsWide,
-        [Parameter(Mandatory)][int]$CellsHigh,
-        [Parameter(Mandatory)][System.Random]$Rng
-    )
+# ============================================================
+#                         MAZE GAME
+# ============================================================
+#
+# Die Generierungslogik unten (Klassen Cell und Maze) ist unveraendert
+# wie geliefert. Ergaenzt wurde nur ConvertTo-TileRows() ganz unten: sie
+# wandelt das Zellen-Gitter in das Zeichen-Karten-Format um, das die
+# Web-GUI einliest (siehe app/browser/README.md), statt es wie im
+# Original per Draw() auf die Konsole zu zeichnen.
+#
+# Kartenformat:
+#   '#' = Wand, '.' = begehbarer Boden, 'P' = Eingang/Spielerstart,
+#   'A' = Ausgang, 'K' = Key
 
-    $walls = @{ N = 0x1; E = 0x2; S = 0x4; W = 0x8 }
-    $opposite = @{ N = 'S'; S = 'N'; E = 'W'; W = 'E' }
-    $delta = @{
-        N = @{ X = 0;  Y = -1 }
-        S = @{ X = 0;  Y = 1 }
-        E = @{ X = 1;  Y = 0 }
-        W = @{ X = -1; Y = 0 }
+class Cell {
+
+    [int] $X
+    [int] $Y
+
+    # Has this cell already been visited by the maze generator?
+    [bool] $Visited = $false
+
+    # Maze walls
+    [bool] $NorthWall = $true
+    [bool] $EastWall  = $true
+    [bool] $SouthWall = $true
+    [bool] $WestWall  = $true
+
+    # Special positions
+    [bool] $IsEntrance = $false
+    [bool] $IsExit     = $false
+    [bool] $IsKey      = $false
+    [bool] $HasPlayer  = $false
+
+    Cell([int] $x, [int] $y) {
+        $this.X = $x
+        $this.Y = $y
+    }
+}
+
+class Maze {
+
+    [int] $Width
+    [int] $Height
+
+    [Cell[,]] $Grid
+
+    [Cell] $Entrance
+    [Cell] $Exit
+    [Cell] $Key
+    [Cell] $Player
+
+    Maze([int] $width, [int] $height) {
+        if ($width -lt 2) {
+            throw "Maze width must be at least 2."
+        }
+        if ($height -lt 2) {
+            throw "Maze height must be at least 2."
+        }
+
+        $this.Width = $width
+        $this.Height = $height
+
+        $this.CreateGrid()
+        $this.GenerateMaze()
+        $this.PlaceObjects()
     }
 
-    $cells = New-Object 'object[,]' $CellsHigh, $CellsWide
-    for ($y = 0; $y -lt $CellsHigh; $y++) {
-        for ($x = 0; $x -lt $CellsWide; $x++) {
-            $cells[$y, $x] = 0xF   # alle 4 Waende stehen noch
+    [void] CreateGrid() {
+        $this.Grid = New-Object 'Cell[,]' $this.Width, $this.Height
+
+        for ($y = 0; $y -lt $this.Height; $y++) {
+            for ($x = 0; $x -lt $this.Width; $x++) {
+                $this.Grid[$x, $y] = [Cell]::new($x, $y)
+            }
         }
     }
 
-    $visited = New-Object 'bool[,]' $CellsHigh, $CellsWide
-    $stack = [System.Collections.Generic.Stack[int[]]]::new()
+    [void] GenerateMaze() {
+        # Pick a random starting cell
+        $startX = Get-Random -Minimum 0 -Maximum $this.Width
+        $startY = Get-Random -Minimum 0 -Maximum $this.Height
 
-    $startX = $Rng.Next(0, $CellsWide)
-    $startY = $Rng.Next(0, $CellsHigh)
-    $visited[$startY, $startX] = $true
-    $stack.Push(@($startX, $startY))
+        $startCell = $this.Grid[$startX, $startY]
+        $startCell.Visited = $true
 
-    while ($stack.Count -gt 0) {
-        $cur = $stack.Peek()
-        $cx = $cur[0]; $cy = $cur[1]
+        # Stack used by the depth-first search
+        $stack = [System.Collections.Stack]::new()
+        $stack.Push($startCell)
 
-        $candidates = @()
-        foreach ($dir in $walls.Keys) {
-            $nx = $cx + $delta[$dir].X
-            $ny = $cy + $delta[$dir].Y
-            if ($nx -ge 0 -and $nx -lt $CellsWide -and $ny -ge 0 -and $ny -lt $CellsHigh -and -not $visited[$ny, $nx]) {
-                $candidates += , $dir
+        while ($stack.Count -gt 0) {
+            # Look at the current cell
+            $currentCell = $stack.Peek()
+
+            # Find a random unvisited neighbour
+            $neighbour = $this.GetRandomUnvisitedNeighbour($currentCell)
+
+            if ($null -eq $neighbour) {
+                # No unvisited neighbours remain. Backtrack.
+                $stack.Pop()
+                continue
+            }
+
+            # Remove the wall between the two cells
+            $this.RemoveWallBetween($currentCell, $neighbour)
+
+            # Mark the neighbour as visited
+            $neighbour.Visited = $true
+
+            # Continue from the new cell
+            $stack.Push($neighbour)
+        }
+    }
+
+    [Cell] GetRandomUnvisitedNeighbour([Cell] $cell) {
+        $directions = @("North", "East", "South", "West") | Sort-Object { Get-Random }
+
+        foreach ($direction in $directions) {
+            $x = $cell.X
+            $y = $cell.Y
+
+            switch ($direction) {
+                "North" { $y-- }
+                "East"  { $x++ }
+                "South" { $y++ }
+                "West"  { $x-- }
+            }
+
+            # Check whether the new position is inside the maze
+            if ($x -lt 0 -or $x -ge $this.Width -or $y -lt 0 -or $y -ge $this.Height) {
+                continue
+            }
+
+            $neighbour = $this.Grid[$x, $y]
+
+            if (-not $neighbour.Visited) {
+                return $neighbour
+            }
+        }
+        return $null
+    }
+
+    [void] RemoveWallBetween([Cell] $current, [Cell] $neighbour) {
+        $dx = $neighbour.X - $current.X
+        $dy = $neighbour.Y - $current.Y
+
+        # Neighbour is north
+        if ($dx -eq 0 -and $dy -eq -1) {
+            $current.NorthWall = $false
+            $neighbour.SouthWall = $false
+        }
+        # Neighbour is east
+        elseif ($dx -eq 1 -and $dy -eq 0) {
+            $current.EastWall = $false
+            $neighbour.WestWall = $false
+        }
+        # Neighbour is south
+        elseif ($dx -eq 0 -and $dy -eq 1) {
+            $current.SouthWall = $false
+            $neighbour.NorthWall = $false
+        }
+        # Neighbour is west
+        elseif ($dx -eq -1 -and $dy -eq 0) {
+            $current.WestWall = $false
+            $neighbour.EastWall = $false
+        }
+    }
+
+    # Hilfsmethode für die Platzierung von Objekten (Parser-freundlich)
+    [Cell] GetRandomEmptyCell() {
+        $randomCell = $null
+        $found = $false
+
+        while (-not $found) {
+            $x = Get-Random -Minimum 0 -Maximum $this.Width
+            $y = Get-Random -Minimum 0 -Maximum $this.Height
+            $randomCell = $this.Grid[$x, $y]
+
+            if (-not $randomCell.IsEntrance -and -not $randomCell.IsExit -and -not $randomCell.IsKey) {
+                $found = $true
             }
         }
 
-        if ($candidates.Count -eq 0) {
-            # Sackgasse erreicht - zurueck zur letzten Zelle mit
-            # unbesuchten Nachbarn (klassisches Backtracking).
-            [void]$stack.Pop()
-            continue
-        }
-
-        $dir = $candidates[$Rng.Next(0, $candidates.Count)]
-        $nx = $cx + $delta[$dir].X
-        $ny = $cy + $delta[$dir].Y
-
-        # Wand zwischen aktueller und neuer Zelle einreissen (beidseitig).
-        $cells[$cy, $cx] = $cells[$cy, $cx] -band (-bnot $walls[$dir])
-        $cells[$ny, $nx] = $cells[$ny, $nx] -band (-bnot $walls[$opposite[$dir]])
-
-        $visited[$ny, $nx] = $true
-        $stack.Push(@($nx, $ny))
+        return $randomCell
     }
 
-    , $cells
+    [void] PlaceObjects() {
+        # Random Entrance
+        $this.Entrance = $this.GetRandomEmptyCell()
+        $this.Entrance.IsEntrance = $true
+
+        # Player starts at the entrance
+        $this.Player = $this.Entrance
+        $this.Player.HasPlayer = $true
+
+        # Random Exit
+        $this.Exit = $this.GetRandomEmptyCell()
+        $this.Exit.IsExit = $true
+
+        # Random Key
+        $this.Key = $this.GetRandomEmptyCell()
+        $this.Key.IsKey = $true
+    }
+
+    # --------------------------------------------------------
+    # Render the maze
+    # --------------------------------------------------------
+
+    [void] Draw() {
+        Clear-Host
+
+        # ----------------------------------------------------
+        # Top border
+        # ----------------------------------------------------
+        for ($x = 0; $x -lt $this.Width; $x++) {
+            Write-Host " ___" -NoNewline
+        }
+        Write-Host ""
+
+        # ----------------------------------------------------
+        # Rows
+        # ----------------------------------------------------
+        for ($y = 0; $y -lt $this.Height; $y++) {
+
+            # ------------------------------------------------
+            # Cell contents and vertical walls (Line 1)
+            # ------------------------------------------------
+            for ($x = 0; $x -lt $this.Width; $x++) {
+                $cell = $this.Grid[$x, $y]
+
+                # West wall
+                if ($cell.WestWall) {
+                    Write-Host "|" -NoNewline
+                } else {
+                    Write-Host " " -NoNewline
+                }
+
+                # Cell content
+                if ($cell.HasPlayer) {
+                    Write-Host " P " -ForegroundColor Cyan -NoNewline
+                } elseif ($cell.IsKey) {
+                    Write-Host " K " -ForegroundColor Yellow -NoNewline
+                } elseif ($cell.IsEntrance) {
+                    Write-Host " E " -ForegroundColor Green -NoNewline
+                } elseif ($cell.IsExit) {
+                    Write-Host " A " -ForegroundColor Red -NoNewline
+                } else {
+                    Write-Host "   " -NoNewline
+                }
+            }
+            # Right border of the maze
+            Write-Host "|"
+
+            # ------------------------------------------------
+            # South walls and vertical walls (Line 2)
+            # ------------------------------------------------
+            for ($x = 0; $x -lt $this.Width; $x++) {
+                $cell = $this.Grid[$x, $y]
+
+                # West wall / Corner pillar
+                if ($cell.WestWall) {
+                    Write-Host "|" -NoNewline
+                } else {
+                    Write-Host " " -NoNewline
+                }
+
+                # South wall
+                if ($cell.SouthWall) {
+                    Write-Host "___" -NoNewline
+                } else {
+                    Write-Host "   " -NoNewline
+                }
+            }
+            # Right border of the maze
+            Write-Host "|"
+        }
+    }
 }
 
-<#
-.SYNOPSIS
-    Wandelt das Zellen-Gitter in das Zeichen-Karten-Format ('#'/'.') um.
-.DESCRIPTION
-    Jede Zelle wird zu einem eigenen Boden-Feld, zwischen benachbarten
-    Zellen liegt je ein weiteres Feld, das je nach eingerissener Wand
-    Boden oder Wand ist. Ergebnis: (CellsWide*2+1) x (CellsHigh*2+1)
-    Zeichen - jede Wand ist dabei genau 1 Feld dick.
-#>
-function ConvertTo-TileMap {
-    param(
-        [Parameter(Mandatory)][object[,]]$Cells,
-        [Parameter(Mandatory)][int]$CellsWide,
-        [Parameter(Mandatory)][int]$CellsHigh
-    )
+# ------------------------------------------------------------
+# Export fuer die Web-GUI: wandelt $maze.Grid in das Zeichen-Karten-
+# Format um (siehe Kopf-Kommentar). Ruehrt die Klassen oben nicht an -
+# liest nur ihren Zustand aus.
+# ------------------------------------------------------------
+function ConvertTo-TileRows {
+    param([Parameter(Mandatory)][Maze]$Maze)
 
-    $width  = $CellsWide * 2 + 1
-    $height = $CellsHigh * 2 + 1
+    $width  = $Maze.Width * 2 + 1
+    $height = $Maze.Height * 2 + 1
     $grid = New-Object 'char[,]' $height, $width
     for ($y = 0; $y -lt $height; $y++) {
         for ($x = 0; $x -lt $width; $x++) { $grid[$y, $x] = '#' }
     }
 
-    for ($cy = 0; $cy -lt $CellsHigh; $cy++) {
-        for ($cx = 0; $cx -lt $CellsWide; $cx++) {
+    for ($cy = 0; $cy -lt $Maze.Height; $cy++) {
+        for ($cx = 0; $cx -lt $Maze.Width; $cx++) {
+            $cell = $Maze.Grid[$cx, $cy]
             $gx = $cx * 2 + 1
             $gy = $cy * 2 + 1
-            $grid[$gy, $gx] = '.'
 
-            $w = $Cells[$cy, $cx]
+            $mark = '.'
+            if ($cell.IsEntrance) { $mark = 'P' }
+            elseif ($cell.IsExit) { $mark = 'A' }
+            elseif ($cell.IsKey)  { $mark = 'K' }
+            $grid[$gy, $gx] = $mark
+
             $gyMinus1 = $gy - 1
             $gyPlus1  = $gy + 1
             $gxMinus1 = $gx - 1
             $gxPlus1  = $gx + 1
-            if (-not ($w -band 0x1)) { $grid[$gyMinus1, $gx] = '.' }   # Norden offen
-            if (-not ($w -band 0x2)) { $grid[$gy, $gxPlus1] = '.' }    # Osten offen
-            if (-not ($w -band 0x4)) { $grid[$gyPlus1, $gx] = '.' }    # Sueden offen
-            if (-not ($w -band 0x8)) { $grid[$gy, $gxMinus1] = '.' }   # Westen offen
+            if (-not $cell.NorthWall) { $grid[$gyMinus1, $gx] = '.' }
+            if (-not $cell.EastWall)  { $grid[$gy, $gxPlus1] = '.' }
+            if (-not $cell.SouthWall) { $grid[$gyPlus1, $gx] = '.' }
+            if (-not $cell.WestWall)  { $grid[$gy, $gxMinus1] = '.' }
         }
     }
 
@@ -152,10 +332,12 @@ function ConvertTo-TileMap {
     , $rows
 }
 
-$rng = if ($Seed -ge 0) { [System.Random]::new($Seed) } else { [System.Random]::new() }
+if ($Seed -ge 0) {
+    Get-Random -SetSeed $Seed | Out-Null
+}
 
-$cells = New-MazeCells -CellsWide $CellsWide -CellsHigh $CellsHigh -Rng $rng
-$map   = ConvertTo-TileMap -Cells $cells -CellsWide $CellsWide -CellsHigh $CellsHigh
+$maze = [Maze]::new($Width, $Height)
+$rows = ConvertTo-TileRows -Maze $maze
 
 $outputPath = if ($env:MAP_OUTPUT_PATH) { $env:MAP_OUTPUT_PATH } else { Join-Path $PSScriptRoot 'map.json' }
 $outputDir = Split-Path -Parent $outputPath
@@ -164,29 +346,24 @@ if ($outputDir -and -not (Test-Path $outputDir)) {
 }
 
 $payload = [ordered]@{
-    width       = $map[0].Length
-    height      = $map.Count
+    width       = $rows[0].Length
+    height      = $rows.Count
     # @(...) erzwingt Object[] statt String[]: ConvertTo-Json in Windows
-    # PowerShell 5.1 serialisiert ein System.String[] fehlerhaft als
-    # {value:[...], Count:N} statt als normales JSON-Array - mit @()
-    # umgangen (getestet, siehe Erklaerung im README).
-    rows        = @($map)
+    # PowerShell 5.1 serialisiert ein System.String[] sonst fehlerhaft als
+    # {value:[...], Count:N} statt als normales JSON-Array.
+    rows        = @($rows)
     generatedAt = (Get-Date).ToString('o')
 }
 
 # Erst in eine temporaere Datei schreiben und dann umbenennen, damit der
-# Browser-Container nie eine halb geschriebene Datei zu lesen bekommt,
-# falls beide Container gleichzeitig laufen.
-#
-# Bewusst per .NET statt "Set-Content -Encoding utf8" geschrieben: Windows
-# PowerShell 5.1 wuerde sonst ein UTF-8-BOM voranstellen, an dem PHPs
-# json_decode() scheitert (json_decode gibt dann null zurueck, und die
-# Web-GUI wuerde still auf den Platzhalter zurueckfallen, obwohl die
-# Karte eigentlich da ist).
+# Browser-Container nie eine halb geschriebene Datei zu lesen bekommt.
+# Per .NET statt "Set-Content -Encoding utf8" geschrieben, weil Windows
+# PowerShell 5.1 sonst ein UTF-8-BOM voranstellen wuerde, an dem PHPs
+# json_decode() scheitert.
 $tempPath = "$outputPath.tmp"
 $json = $payload | ConvertTo-Json -Depth 3
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
 Move-Item -Path $tempPath -Destination $outputPath -Force
 
-Write-Host "Karte generiert: $outputPath ($($payload.width)x$($payload.height), Seed: $(if ($Seed -ge 0) { $Seed } else { 'zufaellig' }))"
+Write-Host "Karte generiert: $outputPath ($($payload.width)x$($payload.height))"

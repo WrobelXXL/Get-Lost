@@ -1,9 +1,10 @@
 // Get-Lost - Tileset
 //
 // Erzeugt die Pixel-Art-Texturen fuer den Renderer komplett im Code, im
-// Stil der Referenz-Vorlage: Ziegel-Mauerwerk mit einem rundlichen,
-// hellen Rand ("Coping") dort, wo eine Wand an Boden grenzt, und grosse
-// Bodenplatten mit Fugen. Keine externen Bilddateien noetig.
+// Stil der Referenz-Vorlage: Ziegel-Mauerwerk mit einem schmalen,
+// rundlichen hellen Rand ("Coping") dort, wo eine Wand an Boden grenzt,
+// und texturreiche Bodenplatten mit Fugen, Schmutzflecken und Rissen.
+// Keine externen Bilddateien noetig.
 //
 // Wichtig: Die Hitbox/Kollisionsgroesse bleibt ein stinknormales Quadrat
 // (TILE_SIZE x TILE_SIZE, ein Grid-Feld = eine Kachel im Karten-Array) -
@@ -14,18 +15,22 @@
 export const TILE_SIZE = 32;
 
 const PAL = {
-    void:       [0x14, 0x13, 0x1c], // ausserhalb der Karte
-    mortar:     [0x1c, 0x1b, 0x26], // Fuge zwischen den Ziegeln
-    brickA:     [0x56, 0x5b, 0x72], // Ziegel-Farbvarianten fuer Textur
-    brickB:     [0x61, 0x66, 0x7e],
-    brickC:     [0x4c, 0x50, 0x66],
-    copingHi:   [0xa3, 0xa9, 0xbe], // Wandkranz: Lichtkante
-    copingMid:  [0x8b, 0x92, 0xa8], // Wandkranz: Mittelton
-    copingLo:   [0x5c, 0x61, 0x78], // Wandkranz: Schattenkante
-    floorBase:  [0x3f, 0x43, 0x56], // Bodenfuge/-rand
-    floorSlab:  [0x47, 0x4c, 0x60], // Bodenplatte
-    floorGrout: [0x2a, 0x2d, 0x3d], // Fuge oben/links (Rasterlinie)
-    floorDark:  [0x36, 0x3a, 0x4c], // Fuge unten/rechts, Risse, Sprenkel
+    void:       [0x00, 0x00, 0x00], // ausserhalb der Karte - reines Schwarz
+    mortar:     [0x18, 0x0e, 0x08], // Fuge zwischen den Ziegeln
+    brickA:     [0x6b, 0x3a, 0x26], // Ziegel-Farbvarianten fuer Textur
+    brickB:     [0x7c, 0x48, 0x30],
+    brickC:     [0x5a, 0x31, 0x20],
+    brickHi:    [0x96, 0x60, 0x3e], // Ziegel: Licht oben/links
+    brickLo:    [0x3e, 0x20, 0x14], // Ziegel: Schatten unten/rechts
+    copingHi:   [0xf0, 0xb0, 0x60], // Wandkranz: Lichtkante
+    copingMid:  [0xc9, 0x77, 0x30], // Wandkranz: Mittelton
+    copingLo:   [0x7a, 0x3d, 0x1a], // Wandkranz: Schattenkante
+    floorBase:  [0x3d, 0x2a, 0x1c], // Fuge/Rand
+    floorSlab:  [0xa9, 0x83, 0x5a], // Bodenplatte
+    floorGrout: [0x2a, 0x1c, 0x12], // Fugenraster
+    floorDark:  [0x6e, 0x4c, 0x30], // Schmutzflecken, dunkler Ton
+    floorDark2: [0x5a, 0x3e, 0x28], // Schmutzflecken, zweiter dunkler Ton
+    floorLight: [0xbf, 0xa0, 0x70], // helle Sprenkel
 };
 
 // Deterministischer Pseudo-Zufallsgenerator (mulberry32), damit dieselbe
@@ -63,7 +68,7 @@ function setRect(img, x, y, w, h, color) {
     }
 }
 
-// Dunkelt einen vorhandenen Pixel ab (fuer Schlagschatten unter Waenden).
+// Dunkelt einen vorhandenen Pixel ab (fuer Schlagschatten/Vignette).
 function shadePixel(img, x, y, factor) {
     if (x < 0 || y < 0 || x >= TILE_SIZE || y >= TILE_SIZE) return;
     const i = (y * TILE_SIZE + x) * 4;
@@ -81,6 +86,8 @@ function toCanvas(img) {
 }
 
 // Ziegel-Mauerwerk im Laeuferverband (versetzte Reihen) als Wandkoerper.
+// Jeder Ziegel bekommt eine 1px Licht-/Schattenkante fuer mehr Kontrast
+// und Plastizitaet (statt flacher Einzelfarbe).
 function buildBrickBody(img, seed) {
     const t = TILE_SIZE;
     setRect(img, 0, 0, t, t, PAL.mortar);
@@ -96,23 +103,25 @@ function buildBrickBody(img, seed) {
         let x = 1 - rowOffset;
         while (x < t - 1) {
             const bx = Math.max(x, 1);
-            const bw = Math.min(x + brickWidth, t - 1) - bx;
-            if (bw > 0) {
-                const bh = Math.min(rowHeight, t - 1 - y);
-                const color = bricks[randInt(rng, 0, bricks.length)];
-                setRect(img, bx, y, Math.max(bw - 1, 1), Math.max(bh - 1, 1), color);
-            }
+            const bw = Math.max(Math.min(x + brickWidth, t - 1) - bx - 1, 1);
+            const bh = Math.max(Math.min(rowHeight, t - 1 - y) - 1, 1);
+            const color = bricks[randInt(rng, 0, bricks.length)];
+            setRect(img, bx, y, bw, bh, color);
+            setRect(img, bx, y, bw, 1, PAL.brickHi);
+            setRect(img, bx, y, 1, bh, PAL.brickHi);
+            if (bh > 1) setRect(img, bx, y + bh - 1, bw, 1, PAL.brickLo);
+            if (bw > 1) setRect(img, bx + bw - 1, y, 1, bh, PAL.brickLo);
             x += brickWidth + 1;
         }
         row++;
     }
 }
 
-// Rundlicher Kranz (Coping) aus ueberlappenden Kreisboegen - wirkt runder
-// als eine reine Sinuswelle. globalOffset ist die Position der Kachel im
-// Gesamtraster entlang der Kante (Spalte fuer oben/unten, Zeile fuer
-// links/rechts), damit das Muster ueber Kachelgrenzen hinweg nahtlos
-// weiterlaeuft statt an jeder Kachel neu "anzusetzen".
+// Schmaler, rundlicher Kranz (Coping) aus ueberlappenden Kreisboegen -
+// wirkt runder als eine reine Sinuswelle. globalOffset ist die Position
+// der Kachel im Gesamtraster entlang der Kante (Spalte fuer oben/unten,
+// Zeile fuer links/rechts), damit das Muster ueber Kachelgrenzen hinweg
+// nahtlos weiterlaeuft statt an jeder Kachel neu "anzusetzen".
 function addCoping(img, side, baseDepth, radius, spacing, globalOffset) {
     const t = TILE_SIZE;
     for (let i = 0; i < t; i++) {
@@ -126,7 +135,7 @@ function addCoping(img, side, baseDepth, radius, spacing, globalOffset) {
         }
         const d = Math.round(baseDepth + bump);
         for (let j = 0; j < d; j++) {
-            const color = j >= d - 2 ? PAL.copingHi : j >= d - 5 ? PAL.copingMid : PAL.copingLo;
+            const color = j >= d - 1 ? PAL.copingHi : j >= d - 3 ? PAL.copingMid : PAL.copingLo;
             if (side === 'top') setPixel(img, i, j, color);
             else if (side === 'bottom') setPixel(img, i, t - 1 - j, color);
             else if (side === 'left') setPixel(img, j, i, color);
@@ -149,9 +158,10 @@ export function buildWallTile(tileX, tileY, floorSides) {
     // bei jedem Rendern gleich aus.
     buildBrickBody(img, 1000 + tileX * 977 + tileY * 8171);
 
-    const radius = 8;
-    const spacing = 11;
-    const baseDepth = 5;
+    // Bewusst schmal/filigran statt einem breiten Block.
+    const radius = 4;
+    const spacing = 7;
+    const baseDepth = 2;
     if (floorSides.top) addCoping(img, 'top', baseDepth, radius, spacing, tileX * TILE_SIZE);
     if (floorSides.bottom) addCoping(img, 'bottom', baseDepth, radius, spacing, tileX * TILE_SIZE);
     if (floorSides.left) addCoping(img, 'left', baseDepth, radius, spacing, tileY * TILE_SIZE);
@@ -165,39 +175,73 @@ function buildFloorTile(variant, shadowMask, hasCrack) {
     const img = newImageData();
 
     setRect(img, 0, 0, t, t, PAL.floorBase);
-    setRect(img, 2, 2, t - 4, t - 4, PAL.floorSlab);
-
-    // Fugenkreuz oben/links ergibt im Raster das durchgehende Plattenmuster.
-    setRect(img, 0, 0, t, 1, PAL.floorGrout);
-    setRect(img, 0, 0, 1, t, PAL.floorGrout);
-    setRect(img, 1, t - 1, t - 1, 1, PAL.floorDark);
-    setRect(img, t - 1, 1, 1, t - 2, PAL.floorDark);
+    setRect(img, 1, 1, t - 2, t - 2, PAL.floorSlab);
 
     const rng = mulberry32(2000 + variant);
-    for (let i = 0; i < 14; i++) {
-        setPixel(img, randInt(rng, 3, t - 3), randInt(rng, 3, t - 3), PAL.floorDark);
-    }
 
-    // Kleiner "+"-foermiger Riss, wie die feinen Sprenkel auf der Vorlage.
-    if (hasCrack) {
-        const cx = randInt(rng, 8, t - 8);
-        const cy = randInt(rng, 8, t - 8);
-        for (const [dx, dy] of [[0, -1], [0, 1], [1, 0], [-1, 0], [0, 0]]) {
-            setPixel(img, cx + dx, cy + dy, PAL.floorDark);
+    // Grosse, unregelmaessige Schmutz-/Abnutzungsflecken (mehrere pro
+    // Kachel, aus kleinen Klumpen statt einzelner Pixel) fuer deutlich
+    // mehr Bodentextur.
+    const blobTones = [PAL.floorDark, PAL.floorDark2];
+    for (let b = 0; b < 6; b++) {
+        const bx = randInt(rng, 3, t - 5);
+        const by = randInt(rng, 3, t - 5);
+        const tone = blobTones[randInt(rng, 0, blobTones.length)];
+        const blobSize = randInt(rng, 2, 5);
+        for (let i = 0; i < blobSize; i++) {
+            setPixel(img, bx + randInt(rng, -2, 3), by + randInt(rng, -2, 3), tone);
         }
     }
 
-    // Weicher Schlagschatten, wenn oben bzw. links eine Wand angrenzt.
-    const depth = 9;
+    // Feine Koernung/Sprenkel (dunkel und hell gemischt).
+    for (let i = 0; i < 22; i++) {
+        const tone = rng() < 0.6 ? PAL.floorDark : PAL.floorLight;
+        setPixel(img, randInt(rng, 2, t - 2), randInt(rng, 2, t - 2), tone);
+    }
+
+    // Duenne, leicht verwinkelte "abgenutzte" Risslinie.
+    if (hasCrack) {
+        let cx = randInt(rng, 6, t - 10);
+        let cy = randInt(rng, 6, t - 10);
+        for (let i = 0; i < 6; i++) {
+            setPixel(img, cx, cy, PAL.floorGrout);
+            cx += randInt(rng, -1, 2);
+            cy += randInt(rng, 0, 2);
+        }
+    }
+
+    // Fugenraster rundherum - kraeftiger Kontrast statt duenner Linie.
+    setRect(img, 0, 0, t, 1, PAL.floorGrout);
+    setRect(img, 0, 0, 1, t, PAL.floorGrout);
+    setRect(img, 1, t - 1, t - 1, 1, PAL.floorGrout);
+    setRect(img, t - 1, 1, 1, t - 2, PAL.floorGrout);
+
+    // Leichte Vignette an allen vier Kanten jeder Kachel - sorgt fuer
+    // mehr Kontrast/Tiefe an den Seiten, nicht nur direkt unter Waenden.
+    const edge = 3;
+    for (let k = 0; k < edge; k++) {
+        const f = 0.75 + (0.25 * k) / edge;
+        for (let x = 0; x < t; x++) {
+            shadePixel(img, x, k, f);
+            shadePixel(img, x, t - 1 - k, f);
+        }
+        for (let y = 0; y < t; y++) {
+            shadePixel(img, k, y, f);
+            shadePixel(img, t - 1 - k, y, f);
+        }
+    }
+
+    // Kraeftiger Schlagschatten, wenn direkt eine Wand angrenzt.
+    const depth = 10;
     if (shadowMask & 1) {
         for (let y = 0; y < depth; y++) {
-            const f = 0.55 + (0.45 * y) / depth;
+            const f = 0.5 + (0.5 * y) / depth;
             for (let x = 0; x < t; x++) shadePixel(img, x, y, f);
         }
     }
     if (shadowMask & 2) {
         for (let x = 0; x < depth; x++) {
-            const f = 0.6 + (0.4 * x) / depth;
+            const f = 0.55 + (0.45 * x) / depth;
             for (let y = 0; y < t; y++) shadePixel(img, x, y, f);
         }
     }

@@ -5,31 +5,28 @@
 // Wand-Optik darf davon abweichen und optisch etwas in Nachbarfelder
 // hineinragen, siehe tileset.js).
 //
-// Map-Format (von der Level-Generierung geliefert, siehe index.php):
-//   '#' = Wand, '.' = Boden, ' '/alles andere = Leerraum (Void)
+// Map-Format (von der Level-Generierung geliefert, siehe
+// app/maze-gen/main.ps1 und app/browser/README.md):
+//   '#' = Wand, ' ' = Leerraum (Void)
+//   alles andere ('.', 'P' = Eingang/Spielerstart, 'A' = Ausgang,
+//   'K' = Key, ...) = begehbarer Boden. Die Markierung selbst wird hier
+//   nur zum Rendern der Bodenkachel benutzt - was P/A/K tatsaechlich
+//   bedeuten (Spieler-Startposition, Ausgangstrigger, Item), wertet
+//   spaeter die Spiellogik aus einem eigenen Layer ueber dieser Karte
+//   aus (siehe README, Abschnitt "Wie du dein Spiel hier reinbaust").
 
 import { buildWallTile } from './tileset.js';
 
-/**
- * Erstellt eine rechteckige Platzhalter-Map: aussen Wand, innen Boden.
- * Wird nur benutzt, falls keine generierte Karte verfuegbar ist (siehe
- * index.php / game.js).
- */
-export function createEmptyBorderMap(width = 20, height = 14) {
-    const rows = [];
-    for (let y = 0; y < height; y++) {
-        let row = '';
-        for (let x = 0; x < width; x++) {
-            const isBorder = x === 0 || y === 0 || x === width - 1 || y === height - 1;
-            row += isBorder ? '#' : '.';
-        }
-        rows.push(row);
-    }
-    return rows;
+function isWall(ch) {
+    return ch === '#';
+}
+
+function isVoid(ch) {
+    return ch === ' ' || ch === undefined;
 }
 
 /**
- * Zeichnet ein Zeilen-Array (Strings aus '#'/'.') auf einen 2D-Context.
+ * Zeichnet ein Zeilen-Array auf einen 2D-Context.
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {string[]} map      Array von gleich langen Zeilen
@@ -45,22 +42,22 @@ export function renderMap(ctx, map, tileset) {
             const variant = (x * 31 + y * 17) % 3; // deterministische, ruhige Musterung
 
             let tile;
-            if (ch === '#') {
+            if (isWall(ch)) {
                 const floorSides = {
-                    top: y > 0 && map[y - 1][x] === '.',
-                    bottom: y < map.length - 1 && map[y + 1][x] === '.',
-                    left: x > 0 && line[x - 1] === '.',
-                    right: x < line.length - 1 && line[x + 1] === '.',
+                    top: y > 0 && !isWall(map[y - 1][x]) && !isVoid(map[y - 1][x]),
+                    bottom: y < map.length - 1 && !isWall(map[y + 1][x]) && !isVoid(map[y + 1][x]),
+                    left: x > 0 && !isWall(line[x - 1]) && !isVoid(line[x - 1]),
+                    right: x < line.length - 1 && !isWall(line[x + 1]) && !isVoid(line[x + 1]),
                 };
                 tile = buildWallTile(x, y, floorSides);
-            } else if (ch === '.') {
-                const wallAbove = y > 0 && map[y - 1][x] === '#';
-                const wallLeft = x > 0 && line[x - 1] === '#';
+            } else if (isVoid(ch)) {
+                tile = tileset.void;
+            } else {
+                const wallAbove = y > 0 && isWall(map[y - 1][x]);
+                const wallLeft = x > 0 && isWall(line[x - 1]);
                 const mask = (wallAbove ? 1 : 0) | (wallLeft ? 2 : 0);
                 const hasCrack = (x * 7 + y * 13) % 6 === 0;
                 tile = tileset.floor[variant][mask][hasCrack ? 1 : 0];
-            } else {
-                tile = tileset.void;
             }
 
             ctx.drawImage(tile, x * t, y * t, t, t);

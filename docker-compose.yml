@@ -1,15 +1,3 @@
-# Get-Lost - Docker Compose
-#
-# Ablauf beim Start:
-#   1. "maze-gen" erzeugt einmalig eine zufaellige Karte und legt sie im
-#      gemeinsamen Volume "map-data" ab, dann beendet sich der Container.
-#   2. "browser" wartet, bis das fertig ist, und liest die generierte
-#      Karte aus demselben Volume.
-#
-# Danach im Browser erreichbar unter http://<IP-des-Host-Rechners>:8080 -
-# auch von einem anderen Geraet im selben Netzwerk aus, nicht nur
-# "localhost".
-
 services:
   maze-gen:
     build:
@@ -19,7 +7,6 @@ services:
       - map-data:/data
     environment:
       MAP_OUTPUT_PATH: /data/map.json
-    # Container macht seinen Job einmal und beendet sich - kein Neustart.
     restart: "no"
 
   browser:

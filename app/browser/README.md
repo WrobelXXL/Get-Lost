@@ -1,9 +1,10 @@
 # Get-Lost - GUI / Browser
 
 Dieser Ordner enthält die Web-GUI des Spiels: eine PHP-Seite, die eine
-Labyrinth-Karte kachelweise auf einem `<canvas>` zeichnet - im Stil des
-Referenzbilds aus dem Chat (dunkles Steinverlies, Ziegel-Mauerwerk mit
-rundlichem hellem Rand oben an den Wänden, große Bodenplatten). Läuft im
+Labyrinth-Karte kachelweise auf einem `<canvas>` zeichnet - im Stil der
+Referenzbilder aus dem Chat (warmes Sandstein-/Holz-Verlies: Ziegel-Wände
+mit rundlichem orangenem Rand oben, große Bodenplatten in Braun/Beige,
+Hintergrund ausserhalb der Karte reines Schwarz ohne Rahmen). Läuft im
 Docker-Container (Alpine + PHP) und ist danach von jedem Gerät im
 Netzwerk aus per Browser erreichbar, siehe [Starten](#starten) weiter
 unten.
@@ -14,9 +15,10 @@ Generierung: [app/maze-gen/main.ps1](../maze-gen/main.ps1) erzeugt beim
 Docker-Start ein zufälliges, garantiert lösbares Labyrinth (randomisierter
 Backtracker-Algorithmus) und legt es als JSON in einem gemeinsamen Volume
 ab; [index.php](index.php) liest das ein und reicht es an JavaScript
-weiter. Existiert (noch) keine generierte Karte - z. B. beim lokalen
-Testen ohne Docker - zeigt es ersatzweise einen leeren Platzhalter-Rahmen
-(außen Wand, innen Boden).
+weiter. Es gibt bewusst **keinen** Platzhalter-Fallback mehr: Fehlt die
+generierte Karte (z. B. weil `maze-gen` noch nicht gelaufen ist), zeigt
+die Seite einen klaren Fehler statt still irgendeine Ersatz-Karte
+anzuzeigen.
 
 > Es gab vorher einen WPF-Prototyp (natives Windows-Fenster statt
 > Web-Seite). Der ist nach [wpf-prototyp/](wpf-prototyp/) verschoben und
@@ -27,7 +29,7 @@ Testen ohne Docker - zeigt es ersatzweise einen leeren Platzhalter-Rahmen
 
 | Datei | Zweck |
 |---|---|
-| [index.php](index.php) | Einstiegspunkt. Liest die generierte Karte (JSON, siehe `MAP_INPUT_PATH`) ein, ersatzweise die Platzhalter-Karte, und reicht sie als JSON an JavaScript weiter. |
+| [index.php](index.php) | Einstiegspunkt. Liest die generierte Karte (JSON, siehe `MAP_INPUT_PATH`) ein und reicht sie als JSON an JavaScript weiter. Fehlt die Karte, liefert es einen 503-Fehler statt einer Seite. |
 | [tileset.js](tileset.js) | Erzeugt alle Kachel-Texturen (Ziegel-Wand mit rundem Rand, Bodenplatten) als Pixel-Art im Code. Keine Bilddateien nötig. |
 | [mapRenderer.js](mapRenderer.js) | Zeichnet eine Text-Karte kachelweise auf ein `<canvas>`. |
 | [game.js](game.js) | Bootstrapped die Seite: holt sich die Karte, baut das Tileset, zeichnet. |
@@ -52,22 +54,40 @@ Eine Karte ist ein Array von gleich langen Strings, eine Zeile pro Reihe:
 ```php
 $map = [
     "####################",
+    "#.........P........#",
     "#..................#",
-    "#..................#",
+    "#.........A......K.#",
     "####################",
 ];
 ```
 
 - `#` = Wand
-- `.` = begehbarer Boden
-- alles andere (z. B. Leerzeichen) = Leerraum außerhalb der Karte
+- ` ` (Leerzeichen) = Leerraum außerhalb der Karte
+- alles andere = begehbarer Boden. Aktuell erzeugt von
+  [main.ps1](../maze-gen/main.ps1):
+  - `.` = normaler Boden
+  - `P` = Eingang/Spieler-Startposition
+  - `A` = Ausgang
+  - `K` = Key
+
+Für den Renderer zählt nur "Wand oder nicht" - `P`/`A`/`K` werden aktuell
+optisch wie normaler Boden gezeichnet (siehe `isWall()`/`isVoid()` in
+[mapRenderer.js](mapRenderer.js): alles, was keine Wand und kein
+Leerzeichen ist, wird als Boden dargestellt). Was diese Markierungen
+tatsächlich bedeuten, wertet später die Spiellogik direkt aus dem
+Karten-Array aus (z. B. Position von `P` suchen, um den Spieler dort zu
+platzieren) - dafür muss am Renderer nichts geändert werden.
 
 Das ist bewusst simpel gehalten, damit die Level-Generierung nicht wissen
 muss, wie Canvas-Rendering funktioniert - sie muss nur so ein Array
-liefern. `createEmptyBorderMap()` in [mapRenderer.js](mapRenderer.js) und
-`buildEmptyBorderMap()` in [index.php](index.php) sind exakt dasselbe,
-einmal in PHP (Server) und einmal in JS (Fallback, falls die Seite mal
-ohne PHP geöffnet wird).
+liefern.
+
+> **Wichtig:** Die Generierungslogik selbst ([main.ps1](../maze-gen/main.ps1),
+> Klassen `Cell`/`Maze`) kommt so vom Team und wird hier nicht verändert.
+> Ergänzt wurde nur `ConvertTo-TileRows()` ganz unten in der Datei, die
+> das Zellen-Gitter der `Maze`-Klasse in das obige Zeichen-Format
+> umwandelt (statt es wie im Original per `Draw()` auf die Konsole zu
+> schreiben) und als JSON wegschreibt.
 
 ## Wie du dein Spiel hier reinbaust
 
@@ -75,20 +95,20 @@ Wenn du für Map-Design bzw. Spielmechanik zuständig bist, hier die
 Ansatzpunkte:
 
 1. **Andere/bessere Karte generieren:** Die eigentliche Generierung
-   passiert in [app/maze-gen/main.ps1](../maze-gen/main.ps1), nicht hier
-   in `index.php` - dort z. B. Key/Ausgang/Schwierigkeitsgrad ergänzen.
-   Solange das Ergebnis weiterhin eine JSON-Datei mit `rows` (Array von
-   gleich langen Strings aus `'#'`/`'.'`) ist, muss an `index.php` gar
-   nichts geändert werden - `window.__MAP__` wird automatisch mit der
-   neuen Karte gefüllt und von `game.js` gezeichnet.
+   passiert in [app/maze-gen/main.ps1](../maze-gen/main.ps1) (Klassen
+   `Cell`/`Maze`), nicht hier in `index.php`. Solange das Ergebnis
+   weiterhin eine JSON-Datei mit `rows` (Array von gleich langen
+   Strings, `'#'` = Wand) ist, muss an `index.php` gar nichts geändert
+   werden - `window.__MAP__` wird automatisch mit der neuen Karte
+   gefüllt und von `game.js` gezeichnet.
 
 2. **Spieler, Gegner, Items, Key zeichnen:** Diese sollten **nicht** ins
    Karten-Canvas reingemalt werden, sondern als eigenes Element *über*
    dem `<canvas id="map">` liegen (z. B. ein zweites, transparentes
-   `<canvas>` in derselben `.frame`, oder positionierte `<div>`s). So
-   lassen sie sich unabhängig von der Karte bewegen, ohne den ganzen
-   Canvas neu zu zeichnen. `TILE_SIZE` (aus `tileset.js`) gibt dir die
-   Kachelgröße in Pixeln, `SCALE` in `game.js` den Zoomfaktor.
+   `<canvas>`, oder positionierte `<div>`s). So lassen sie sich
+   unabhängig von der Karte bewegen, ohne den ganzen Canvas neu zu
+   zeichnen. `TILE_SIZE` (aus `tileset.js`) gibt dir die Kachelgröße in
+   Pixeln, `SCALE` in `game.js` den Zoomfaktor.
 
 3. **Spiel-Loop / Bewegung:** `requestAnimationFrame` bzw. `setInterval`
    eignet sich für den Tick des Spiels (Gegner bewegen, Timer für den
@@ -98,15 +118,15 @@ Ansatzpunkte:
    (Lenkrad- bzw. Tanzmatten-Feeling war ja auch im Gespräch) bieten sich
    zusätzlich `touchstart`/`touchmove`-Handler an.
 
-4. **Größere Karten:** Aktuell ist die Platzhalter-Karte mit
-   `buildEmptyBorderMap()` (Standard 20×14) sehr klein. Die
+4. **Größere/kleinere Karten:** Die Kartengröße steuerst du über
+   `-Width`/`-Height` beim Aufruf von [main.ps1](../maze-gen/main.ps1)
+   (Default 50×20 Zellen → 101×41 Zeichen, wie im Originalskript). Die
    Renderer-Funktion (`renderMap` in `mapRenderer.js`) ist davon
-   unabhängig - sie funktioniert mit jeder Kartengröße, die du ihr gibst,
-   der Canvas passt seine Größe in `game.js` automatisch an
-   (`canvas.width`/`canvas.height` richten sich nach der Kartengröße).
-   Bei sehr großen Karten irgendwann sinnvoll: Scrollen/Kamera statt
-   alles auf einmal darzustellen - dafür gibt es aktuell noch keine
-   Lösung.
+   unabhängig - sie funktioniert mit jeder Kartengröße, der Canvas passt
+   seine Größe in `game.js` automatisch an (`canvas.width`/`canvas.height`
+   richten sich nach der Kartengröße). Bei sehr großen Karten irgendwann
+   sinnvoll: Scrollen/Kamera statt alles auf einmal darzustellen - dafür
+   gibt es aktuell noch keine Lösung.
 
 5. **Neue Kachel-Arten** (z. B. Ausgang, Falle, Truhe): In
    [tileset.js](tileset.js) eine neue `build...Tile()`-Funktion nach dem
@@ -160,19 +180,14 @@ http://<IP-des-Host-Rechners>:8080
 
 ### Ohne Docker, lokal zum Testen
 
-Falls PHP lokal installiert ist, zeigt die Seite den Platzhalter-Rahmen
-(es gibt ja keine generierte `map.json`):
-
-```powershell
-php -S localhost:8080 -t app/browser
-```
-
-Für eine echte generierte Karte lokal zusätzlich (braucht PowerShell 7 /
-`pwsh`):
+Es gibt keinen Platzhalter-Fallback mehr - ohne generierte Karte zeigt
+`index.php` einen 503-Fehler. Erst eine Karte generieren (braucht
+PowerShell 7 / `pwsh`), dann PHP starten:
 
 ```powershell
 $env:MAP_OUTPUT_PATH = "$PWD/app/browser/local-map.json"
 pwsh -File app/maze-gen/main.ps1
+
 $env:MAP_INPUT_PATH = "$PWD/app/browser/local-map.json"
 php -S localhost:8080 -t app/browser
 ```
