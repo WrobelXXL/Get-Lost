@@ -1,0 +1,30 @@
+/* Get-Lost - Web-GUI Styling */
+
+:root {
+    color-scheme: dark;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    background: #14131c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, sans-serif;
+}
+
+.frame {
+    background: #0d0c13;
+    border: 2px solid #3d3b4e;
+    padding: 16px;
+    display: inline-block;
+}
+
+canvas#map {
+    display: block;
+    /* Pixel-Art beim Hochskalieren scharf halten statt weichzeichnen. */
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
