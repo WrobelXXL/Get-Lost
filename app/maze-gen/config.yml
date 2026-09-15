@@ -1,0 +1,8 @@
+maze_level:
+  - level: 1
+    width: 10
+    height: 10
+
+  - level: 2
+    width: 15
+    height: 15

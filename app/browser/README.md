@@ -1,16 +1,16 @@
 # Get-Lost - GUI / Browser
 
 Dieser Ordner enthält die Web-GUI des Spiels: eine PHP-Seite, die eine
-Labyrinth-Karte kachelweise auf einem `<canvas>` zeichnet - im Stil der
-Referenzbilder aus dem Chat (warmes Sandstein-/Holz-Verlies: Ziegel-Wände
-mit rundlichem orangenem Rand oben, große Bodenplatten in Braun/Beige,
-Hintergrund ausserhalb der Karte reines Schwarz ohne Rahmen). Läuft im
+Labyrinth-Karte als scharfe Pixel-Art auf einem `<canvas>` zeichnet.
+Die Referenz bestimmt die schmalen ockerfarbenen Wandkanten, dunklen
+Ziegelfronten, abgenutzten braunen Bodenfliesen und warmen Fackeln.
+Außerhalb der Karte liegt ein fast schwarzer Hintergrund. Läuft im
 Docker-Container (Alpine + PHP) und ist danach von jedem Gerät im
 Netzwerk aus per Browser erreichbar, siehe [Starten](#starten) weiter
 unten.
 
-**Aktueller Stand:** Es gibt noch keine Spiellogik, keine Bewegung, kein
-Key/Ausgang. Die Karte selbst kommt aber schon aus einer echten
+**Aktueller Stand:** Es gibt noch keine Spiellogik, keine Bewegung und
+keine Item- oder Ausgangsinteraktion. Die Karte kommt bereits aus einer echten
 Generierung: [app/maze-gen/main.ps1](../maze-gen/main.ps1) erzeugt beim
 Docker-Start ein zufälliges, garantiert lösbares Labyrinth (randomisierter
 Backtracker-Algorithmus) und legt es als JSON in einem gemeinsamen Volume
@@ -30,22 +30,53 @@ anzuzeigen.
 | Datei | Zweck |
 |---|---|
 | [index.php](index.php) | Einstiegspunkt. Liest die generierte Karte (JSON, siehe `MAP_INPUT_PATH`) ein und reicht sie als JSON an JavaScript weiter. Fehlt die Karte, liefert es einen 503-Fehler statt einer Seite. |
-| [tileset.js](tileset.js) | Erzeugt alle Kachel-Texturen (Ziegel-Wand mit rundem Rand, Bodenplatten) als Pixel-Art im Code. Keine Bilddateien nötig. |
-| [mapRenderer.js](mapRenderer.js) | Zeichnet eine Text-Karte kachelweise auf ein `<canvas>`. |
-| [game.js](game.js) | Bootstrapped die Seite: holt sich die Karte, baut das Tileset, zeichnet. |
-| [style.css](style.css) | Layout/Hintergrund rund um den Canvas. |
+| [tileset.js](tileset.js) | Erzeugt und speichert Boden-, Schutt- und Ornamentvarianten; exportiert `TILE_SIZE`, `CELL_SIZE`, `PALETTE`, `hash()` und `createTileset()`. Keine Bilddateien nötig. |
+| [mapRenderer.js](mapRenderer.js) | Zeichnet Boden und zusammenhängende Wände, platziert Dekorationen an passenden Wänden/Ecken und berechnet Lichtflächen. `renderMap()` liefert `{ lampCount, drawLights() }`. |
+| [decorations.js](decorations.js) | Erzeugt wiederverwendbare Pixel-Sprites für Gefäße, Schutt, Lüftungsgitter, Fackeln und Flammenbilder. |
+| [game.js](game.js) | Initialisiert Karte und Canvas und steuert die sichtbaren Lichtanimationen. |
+| [style.css](style.css) | Dunkles Seitenlayout und pixelgenaue, scrollbar erreichbare Darstellung großer Karten. |
 | [../maze-gen/main.ps1](../maze-gen/main.ps1) | Erzeugt die zufällige Karte (nicht Teil dieses Ordners, aber die Gegenseite der Schnittstelle - siehe unten). |
 
 ## Wand-Optik vs. Hitbox
 
-Die Wände sehen jetzt nicht mehr aus wie einfache volle Quadrate, sondern
-haben einen rundlichen, helleren Rand ("Coping") dort, wo sie an Boden
-angrenzen - das kann optisch ein paar Pixel in die Nachbarkachel
-hineinragen. Für Kollision/Bewegung zählt das **nicht**: die Hitbox ist
-weiterhin ein stinknormales Quadrat, ein Zeichen im Karten-Array
-(`'#'`/`'.'`) = ein Grid-Feld = `TILE_SIZE` × `TILE_SIZE` Pixel. Wer
-später die Bewegung/Kollision baut, rechnet also ganz normal mit dem
-Karten-Raster, ohne sich um die Pixel-Optik zu kümmern.
+`TILE_SIZE` bleibt **32 Pixel** für native Texturen und logische
+Koordinaten. Jedes `#` bezeichnet weiterhin eine vollständig gesperrte
+Zelle. Für die Darstellung reserviert `CELL_SIZE = 64` dagegen 64×64
+Canvas-Pixel pro Kartenzeichen: So entstehen breite Gänge, während
+Bodensteine und Details ihre ursprüngliche Pixelgröße behalten.
+
+Die sichtbare Wand besitzt eine 8 Pixel breite, mit Nachbarwänden
+verbundene Krone und eine 30 Pixel nach unten projizierte Ziegelfront.
+Die Krone beginnt innerhalb der dargestellten Zelle bei x=28, y=13;
+die Front bleibt innerhalb dieser 64×64-Zelle. Die dunkle Schuttfläche
+unter der Wand gehört ebenfalls zur gesperrten Zelle. Spätere Bewegung
+und Kollision verwenden weiterhin das ursprüngliche Karten-Raster,
+nicht die schmalere sichtbare Wandkontur.
+
+## Boden, Details und Licht
+
+- `createTileset()` liefert gecachte Canvas-Kacheln: `floor[64]`,
+  `exterior[32]`, `ornament[16]`, `void`, `tileSize` und `cellSize`.
+  Eine native 32×32-Bodenkachel enthält vier 16×16-Fliesen mit dünnen
+  Fugen, Farbvarianten, Abnutzung und gelegentlichen Einfassungen.
+  Pro dargestellter 64×64-Zelle werden mehrere dieser Kacheln kombiniert;
+  die einzelnen Fliesen werden nicht vergrößert.
+- Dunkler Schutt unterscheidet Wandbereiche vom inneren Pflaster.
+  Unregelmäßige Säume verbinden beide Texturen; Ornamente liegen in
+  zusammenhängenden Teilflächen. `hash(x, y, salt)` hält die Varianten
+  deterministisch, ohne den Zufallszustand der Generierung zu beeinflussen.
+- `decorations.js` liefert die Sprites. `mapRenderer.js` platziert sie
+  mit Abständen an Wänden und Ecken. Gefäße und Schutt bleiben rein
+  dekorativ; markierte `P`-/`A`-/`K`-Zellen erhalten keine Bodenobjekte.
+- Warme Lichtflächen werden beim ersten Erreichen des sichtbaren Bereichs
+  berechnet, danach gecacht und berücksichtigen die sichtbaren Wandkanten.
+  Nur sichtbare Lichtausschnitte und
+  Flammen werden mit höchstens 10 Bildern pro Sekunde neu gezeichnet.
+  Bei `prefers-reduced-motion` bleibt das Licht statisch; in einem
+  versteckten Tab pausiert die Animation.
+- Der Canvas wird ohne CSS-Verkleinerung (1:1) und mit deaktivierter
+  Bildglättung dargestellt. Die Standardkarte mit 101×41 Zeichen ergibt
+  6464×2624 Canvas-Pixel; große Karten sind in beiden Richtungen scrollbar.
 
 ## Das Karten-Format
 
@@ -70,10 +101,9 @@ $map = [
   - `A` = Ausgang
   - `K` = Key
 
-Für den Renderer zählt nur "Wand oder nicht" - `P`/`A`/`K` werden aktuell
-optisch wie normaler Boden gezeichnet (siehe `isWall()`/`isVoid()` in
-[mapRenderer.js](mapRenderer.js): alles, was keine Wand und kein
-Leerzeichen ist, wird als Boden dargestellt). Was diese Markierungen
+Für den Renderer werden `P`/`A`/`K` aktuell als Boden gezeichnet
+(siehe `isFloor()` in [mapRenderer.js](mapRenderer.js): alles, was keine
+Wand und kein Leerzeichen ist, wird als Boden dargestellt). Was diese Markierungen
 tatsächlich bedeuten, wertet später die Spiellogik direkt aus dem
 Karten-Array aus (z. B. Position von `P` suchen, um den Spieler dort zu
 platzieren) - dafür muss am Renderer nichts geändert werden.
@@ -107,8 +137,11 @@ Ansatzpunkte:
    dem `<canvas id="map">` liegen (z. B. ein zweites, transparentes
    `<canvas>`, oder positionierte `<div>`s). So lassen sie sich
    unabhängig von der Karte bewegen, ohne den ganzen Canvas neu zu
-   zeichnen. `TILE_SIZE` (aus `tileset.js`) gibt dir die Kachelgröße in
-   Pixeln, `SCALE` in `game.js` den Zoomfaktor.
+   zeichnen. `TILE_SIZE` (aus `tileset.js`) bleibt die logische
+   Kachelgröße. Visuelle Zellpositionen verwenden dagegen
+   `x * CELL_SIZE` und `y * CELL_SIZE`; bereits vorhandene logische
+   Pixelkoordinaten werden mit `CELL_SIZE / TILE_SIZE` umgerechnet.
+   Kollisionsberechnungen bleiben im unveränderten logischen Raster.
 
 3. **Spiel-Loop / Bewegung:** `requestAnimationFrame` bzw. `setInterval`
    eignet sich für den Tick des Spiels (Gegner bewegen, Timer für den
@@ -124,15 +157,16 @@ Ansatzpunkte:
    Renderer-Funktion (`renderMap` in `mapRenderer.js`) ist davon
    unabhängig - sie funktioniert mit jeder Kartengröße, der Canvas passt
    seine Größe in `game.js` automatisch an (`canvas.width`/`canvas.height`
-   richten sich nach der Kartengröße). Bei sehr großen Karten irgendwann
-   sinnvoll: Scrollen/Kamera statt alles auf einmal darzustellen - dafür
-   gibt es aktuell noch keine Lösung.
+   richten sich nach Zeichenanzahl × `CELL_SIZE`). Große Karten bleiben in
+   Originalauflösung und können über die Seite gescrollt werden.
+   Eine dem Spieler folgende Kamera ist noch nicht implementiert.
 
-5. **Neue Kachel-Arten** (z. B. Ausgang, Falle, Truhe): In
-   [tileset.js](tileset.js) eine neue `build...Tile()`-Funktion nach dem
-   Vorbild von `buildWallTile`/`buildFloorTile` ergänzen und in
-   [mapRenderer.js](mapRenderer.js) in `renderMap()` einen weiteren Fall
-   für das entsprechende Zeichen hinzufügen.
+5. **Neue Kachel-Arten** (z. B. Ausgang, Falle, Truhe): Bodenvarianten
+   gehören in [tileset.js](tileset.js), dekorative Sprites in
+   [decorations.js](decorations.js). Die Zuordnung von Kartenzeichen
+   zur Darstellung erfolgt in [mapRenderer.js](mapRenderer.js).
+   Bewegliche oder interaktive Objekte erhalten den separaten Layer
+   aus Punkt 2; ihre Regeln gehören zur Spiellogik.
 
 ## Die Schnittstelle Map-Generierung ↔ Browser
 

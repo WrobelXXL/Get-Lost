@@ -1,6 +1,6 @@
 param(
-    [int]$Width = 50,
-    [int]$Height = 20,
+    [int]$Width = 10,
+    [int]$Height = 10,
     # -1 = jedes Mal eine andere, zufaellige Karte
     [int]$Seed = -1
 )
@@ -283,6 +283,16 @@ class Maze {
         }
     }
 }
+
+
+# ENDE
+# -------------------------------------------------------------
+
+
+
+
+
+
 
 # ------------------------------------------------------------
 # Export fuer die Web-GUI: wandelt $maze.Grid in das Zeichen-Karten-

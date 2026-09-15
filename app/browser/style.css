@@ -1,22 +1,27 @@
-/* Get-Lost - Web-GUI Styling */
-
+/* One CSS pixel per art pixel. Large mazes scroll without fractional scaling. */
 :root {
     color-scheme: dark;
+    background: #09080e;
 }
 
-html,
+html {
+    min-height: 100%;
+    scrollbar-color: #49392f #09080e;
+    scrollbar-width: thin;
+}
+
 body {
     margin: 0;
-    height: 100%;
-    background: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    min-width: 100%;
+    min-height: 100vh;
+    width: max-content;
+    display: grid;
+    place-items: center;
+    background: #09080e;
 }
 
 canvas#map {
     display: block;
-    /* Pixel-Art beim Hochskalieren scharf halten statt weichzeichnen. */
-    image-rendering: pixelated;
     image-rendering: crisp-edges;
+    image-rendering: pixelated;
 }
