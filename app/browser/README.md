@@ -151,15 +151,30 @@ Ansatzpunkte:
    (Lenkrad- bzw. Tanzmatten-Feeling war ja auch im Gespräch) bieten sich
    zusätzlich `touchstart`/`touchmove`-Handler an.
 
-4. **Größere/kleinere Karten:** Die Kartengröße steuerst du über
-   `-Width`/`-Height` beim Aufruf von [main.ps1](../maze-gen/main.ps1)
-   (Default 50×20 Zellen → 101×41 Zeichen, wie im Originalskript). Die
-   Renderer-Funktion (`renderMap` in `mapRenderer.js`) ist davon
-   unabhängig - sie funktioniert mit jeder Kartengröße, der Canvas passt
-   seine Größe in `game.js` automatisch an (`canvas.width`/`canvas.height`
-   richten sich nach Zeichenanzahl × `CELL_SIZE`). Große Karten bleiben in
-   Originalauflösung und können über die Seite gescrollt werden.
-   Eine dem Spieler folgende Kamera ist noch nicht implementiert.
+4. **Größere/kleinere Karten (Level):** Die Kartengröße steht nicht mehr
+   im Skript, sondern in [config.yml](../maze-gen/config.yml) - eine
+   Liste von Leveln mit `width`/`height` in Zellen:
+   ```yaml
+   maze_level:
+     - level: 1
+       width: 10
+       height: 10
+
+     - level: 2
+       width: 15
+       height: 15
+   ```
+   Neues Level = neuer Eintrag in der Liste, fertig. `main.ps1` wählt
+   per `-Level` (Standard: `1`) bzw. der Umgebungsvariable `MAZE_LEVEL`
+   (siehe [docker-compose.yml](../../docker-compose.yml)) den passenden
+   Eintrag aus. Gibt es das angeforderte Level nicht, bricht das Skript
+   mit einer klaren Fehlermeldung ab (statt einer falschen Kartengröße).
+   Die Renderer-Funktion (`renderMap` in `mapRenderer.js`) ist von der
+   Kartengröße unabhängig - der Canvas passt seine Größe in `game.js`
+   automatisch an (`canvas.width`/`canvas.height` richten sich nach
+   Zeichenanzahl × `CELL_SIZE`). Große Karten bleiben in
+   Originalauflösung und können über die Seite gescrollt werden. Eine
+   dem Spieler folgende Kamera ist noch nicht implementiert.
 
 5. **Neue Kachel-Arten** (z. B. Ausgang, Falle, Truhe): Bodenvarianten
    gehören in [tileset.js](tileset.js), dekorative Sprites in
@@ -175,10 +190,11 @@ app/maze-gen/main.ps1  --schreibt-->  map.json  --liest-->  app/browser/index.ph
                         (gemeinsames Docker-Volume "map-data")
 ```
 
-`main.ps1` schreibt `{ "width", "height", "rows": [...], "generatedAt" }`
-als JSON. Pfad kommt aus `$env:MAP_OUTPUT_PATH` (Container-Standard:
-`/data/map.json`). `index.php` liest denselben Pfad aus
-`$env:MAP_INPUT_PATH`. Beides wird in [docker-compose.yml](../../docker-compose.yml)
+`main.ps1` schreibt `{ "level", "width", "height", "rows": [...], "generatedAt" }`
+als JSON (Breite/Höhe kommen aus [config.yml](../maze-gen/config.yml),
+siehe Punkt 4 oben). Pfad kommt aus `$env:MAP_OUTPUT_PATH`
+(Container-Standard: `/data/map.json`). `index.php` liest denselben Pfad
+aus `$env:MAP_INPUT_PATH`. Beides wird in [docker-compose.yml](../../docker-compose.yml)
 verdrahtet - der `browser`-Service startet dort erst, nachdem `maze-gen`
 fertig ist (`depends_on: condition: service_completed_successfully`).
 

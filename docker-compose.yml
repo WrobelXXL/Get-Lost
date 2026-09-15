@@ -7,6 +7,8 @@ services:
       - map-data:/data
     environment:
       MAP_OUTPUT_PATH: /data/map.json
+      # Welches Level aus app/maze-gen/config.yml erzeugt werden soll.
+      MAZE_LEVEL: "1"
     restart: "no"
 
   browser:

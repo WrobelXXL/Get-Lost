@@ -1,6 +1,6 @@
 param(
-    [int]$Width = 10,
-    [int]$Height = 10,
+    # Welches Level aus config.yml? Start ist Level 1.
+    [int]$Level = 1,
     # -1 = jedes Mal eine andere, zufaellige Karte
     [int]$Seed = -1
 )
@@ -14,6 +14,10 @@ param(
 # wandelt das Zellen-Gitter in das Zeichen-Karten-Format um, das die
 # Web-GUI einliest (siehe app/browser/README.md), statt es wie im
 # Original per Draw() auf die Konsole zu zeichnen.
+#
+# Breite/Hoehe kommen aus config.yml (siehe Read-MazeLevelConfig ganz
+# unten), nicht mehr als feste Zahlen im Skript - -Level waehlt den
+# Eintrag aus (Standard: Level 1).
 #
 # Kartenformat:
 #   '#' = Wand, '.' = begehbarer Boden, 'P' = Eingang/Spielerstart,
@@ -342,11 +346,62 @@ function ConvertTo-TileRows {
     , $rows
 }
 
+# ------------------------------------------------------------
+# Liest Breite/Hoehe pro Level aus config.yml. Bewusst ohne externes
+# YAML-Modul (das muesste erst ins schlanke Alpine-Image installiert
+# werden) - die Datei hat ein festes, einfaches Format, dafuer reicht
+# ein kleiner zeilenweiser Parser.
+# ------------------------------------------------------------
+function Read-MazeLevelConfig {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$Level
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "Level-Konfiguration nicht gefunden: $Path"
+    }
+
+    $levels = @()
+    $current = $null
+    foreach ($line in Get-Content -Path $Path) {
+        if ($line -match '^\s*-\s*level:\s*(\d+)\s*$') {
+            if ($current) { $levels += $current }
+            $current = @{ Level = [int]$Matches[1] }
+        }
+        elseif ($current -and $line -match '^\s*width:\s*(\d+)\s*$') {
+            $current.Width = [int]$Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*height:\s*(\d+)\s*$') {
+            $current.Height = [int]$Matches[1]
+        }
+    }
+    if ($current) { $levels += $current }
+
+    $match = $levels | Where-Object { $_.Level -eq $Level }
+    if (-not $match) {
+        $available = ($levels | ForEach-Object { $_.Level }) -join ', '
+        throw "Level $Level nicht in $Path gefunden ($($levels.Count) Level geladen). Verfuegbare Level: $available"
+    }
+
+    $match
+}
+
+# Level laesst sich zusaetzlich per Umgebungsvariable steuern (Docker),
+# ohne dass jemand das Skript mit -Level aufrufen muss. Ein explizit
+# uebergebener -Level-Parameter hat trotzdem Vorrang.
+if (-not $PSBoundParameters.ContainsKey('Level') -and $env:MAZE_LEVEL) {
+    $Level = [int]$env:MAZE_LEVEL
+}
+
+$configPath = Join-Path $PSScriptRoot 'config.yml'
+$levelConfig = Read-MazeLevelConfig -Path $configPath -Level $Level
+
 if ($Seed -ge 0) {
     Get-Random -SetSeed $Seed | Out-Null
 }
 
-$maze = [Maze]::new($Width, $Height)
+$maze = [Maze]::new($levelConfig.Width, $levelConfig.Height)
 $rows = ConvertTo-TileRows -Maze $maze
 
 $outputPath = if ($env:MAP_OUTPUT_PATH) { $env:MAP_OUTPUT_PATH } else { Join-Path $PSScriptRoot 'map.json' }
@@ -356,6 +411,7 @@ if ($outputDir -and -not (Test-Path $outputDir)) {
 }
 
 $payload = [ordered]@{
+    level       = $Level
     width       = $rows[0].Length
     height      = $rows.Count
     # @(...) erzwingt Object[] statt String[]: ConvertTo-Json in Windows
@@ -376,4 +432,4 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
 Move-Item -Path $tempPath -Destination $outputPath -Force
 
-Write-Host "Karte generiert: $outputPath ($($payload.width)x$($payload.height))"
+Write-Host "Karte generiert: $outputPath (Level $Level, $($payload.width)x$($payload.height))"
