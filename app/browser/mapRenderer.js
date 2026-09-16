@@ -138,7 +138,12 @@ function drawWalls(ctx, mask, width, height) {
                 const bx = x + (row % 2) * 8;
                 const seed = hash(Math.floor(bx / 16), row, 10);
                 let color = colors.bricks[seed % 4];
-                const bottom = depth >= FACE_HEIGHT - hash(Math.floor(x / 3), y - depth, 3) % 2;
+                // Rare broken feet reveal the rubble below, with a stepped
+                // outline above the chip instead of a ruler-straight edge.
+                const chipped = hash(Math.floor(x / 16), y - depth, 77) % 7 === 0;
+                const missing = chipped ? Math.max(0, 3 - Math.abs(7 - x % 16)) : 0;
+                if (depth > FACE_HEIGHT - missing) continue;
+                const bottom = depth >= FACE_HEIGHT - missing - hash(Math.floor(x / 3), y - depth, 3) % 2;
                 if (bx % 16 === 0 || (y - CAP_TOP) % 11 === 0) color = colors.mortar;
                 else if ((y - CAP_TOP) % 11 === 1 && depth < 12) color = [114, 60, 43];
                 // Short fractures belong to individual stones, not a noisy overlay.
@@ -197,6 +202,50 @@ function placeDetails(ctx, map, t, sprites) {
     return lamps;
 }
 
+// Finds the single gap the maze generator punched through the outer
+// boundary at a marked cell ('P' entrance or 'A' exit) and stands a
+// small pillar on each side of it, so the opening reads as a built gate
+// instead of a bare hole in the wall. Direction comes straight from the
+// real map data (which boundary ring cell next to the mark is open),
+// not from assumptions about layout.
+function findGate(map, mark) {
+    const ch = (x, y) => map[y]?.[x];
+    const lastRow = map.length - 1;
+    outer:
+    for (let y = 0; y < map.length; y++) {
+        const lastCol = map[y].length - 1;
+        for (let x = 0; x < map[y].length; x++) {
+            if (ch(x, y) !== mark) continue;
+            if (y - 1 === 0 && ch(x, y - 1) !== '#') return { x, y, side: 'north' };
+            if (y + 1 === lastRow && ch(x, y + 1) !== '#') return { x, y, side: 'south' };
+            if (x - 1 === 0 && ch(x - 1, y) !== '#') return { x, y, side: 'west' };
+            if (x + 1 === lastCol && ch(x + 1, y) !== '#') return { x, y, side: 'east' };
+            break outer;
+        }
+    }
+    return null;
+}
+
+function placeGate(ctx, map, t, sprites, mark) {
+    const gate = findGate(map, mark);
+    if (!gate) return;
+
+    // px/py = die markierte Zelle selbst (immer eine Kachel von der
+    // wahren Kante entfernt, siehe Set-EdgeEntranceAndExit in main.ps1).
+    // Die Oeffnung selbst liegt eine Kachel weiter aussen - die Saeulen
+    // sollen genau an dieser wahren Kante stehen (an der Schwelle zur
+    // Dunkelheit), nicht eine Kachel zu weit im Raum.
+    const px = gate.x * t, py = gate.y * t;
+    const mapWidthPx = map[0].length * t, mapHeightPx = map.length * t;
+    const pillar = sprites.pillar;
+    const stand = (x, y) => ctx.drawImage(pillar, Math.round(x - pillar.width / 2), Math.round(y - pillar.height));
+
+    if (gate.side === 'north') { stand(px, pillar.height); stand(px + t, pillar.height); }
+    else if (gate.side === 'south') { stand(px, mapHeightPx); stand(px + t, mapHeightPx); }
+    else if (gate.side === 'west') { stand(pillar.width / 2, py); stand(pillar.width / 2, py + t); }
+    else if (gate.side === 'east') { stand(mapWidthPx - pillar.width / 2, py); stand(mapWidthPx - pillar.width / 2, py + t); }
+}
+
 // Bake illumination into the real material colors. Animation only redraws
 // these small cached patches, without a full-maze redraw or pixel processing.
 function lightPatch(base, mask, lamp) {
@@ -242,6 +291,8 @@ export function renderMap(ctx, map, tileset) {
     drawWalls(ctx, mask, width, height);
     const sprites = createDecorations();
     const lamps = placeDetails(ctx, map, tileset.cellSize, sprites);
+    placeGate(ctx, map, tileset.cellSize, sprites, 'P');
+    placeGate(ctx, map, tileset.cellSize, sprites, 'A');
     ctx.fillStyle = 'rgba(13, 10, 23, 0.07)';
     ctx.fillRect(0, 0, width, height);
     const base = canvas(width, height);

@@ -1,27 +1,14 @@
 param(
     # Welches Level aus config.yml? Start ist Level 1.
     [int]$Level = 1,
-    # -1 = jedes Mal eine andere, zufaellige Karte
+    # Ueberschreibt den Seed des Levels aus config.yml; -1 = zufaellig.
+    [ValidateRange(-1, 2147483647)]
     [int]$Seed = -1
 )
 
 # ============================================================
 #                         MAZE GAME
 # ============================================================
-#
-# Die Generierungslogik unten (Klassen Cell und Maze) ist unveraendert
-# wie geliefert. Ergaenzt wurde nur ConvertTo-TileRows() ganz unten: sie
-# wandelt das Zellen-Gitter in das Zeichen-Karten-Format um, das die
-# Web-GUI einliest (siehe app/browser/README.md), statt es wie im
-# Original per Draw() auf die Konsole zu zeichnen.
-#
-# Breite/Hoehe kommen aus config.yml (siehe Read-MazeLevelConfig ganz
-# unten), nicht mehr als feste Zahlen im Skript - -Level waehlt den
-# Eintrag aus (Standard: Level 1).
-#
-# Kartenformat:
-#   '#' = Wand, '.' = begehbarer Boden, 'P' = Eingang/Spielerstart,
-#   'A' = Ausgang, 'K' = Key
 
 class Cell {
 
@@ -336,6 +323,21 @@ function ConvertTo-TileRows {
         }
     }
 
+    # Aussenwand direkt am Eingang UND am Ausgang oeffnen, damit P und A
+    # beide wirklich nach draussen fuehren statt nur eine Zelle direkt vor
+    # der Kartenwand zu sein. Beide sitzen dank Set-EdgeEntranceAndExit
+    # garantiert auf einer Randzelle, also genau einer Seite (X=0/Width-1
+    # oder Y=0/Height-1) - dort wird die sonst durchgehende '#'-Aussenkante
+    # an exakt dieser Stelle zu Boden.
+    foreach ($special in @($Maze.Entrance, $Maze.Exit)) {
+        $sgx = $special.X * 2 + 1
+        $sgy = $special.Y * 2 + 1
+        if ($special.X -eq 0) { $grid[$sgy, 0] = '.' }
+        elseif ($special.X -eq $Maze.Width - 1) { $grid[$sgy, ($width - 1)] = '.' }
+        elseif ($special.Y -eq 0) { $grid[0, $sgx] = '.' }
+        elseif ($special.Y -eq $Maze.Height - 1) { $grid[($height - 1), $sgx] = '.' }
+    }
+
     $rows = New-Object 'string[]' $height
     for ($y = 0; $y -lt $height; $y++) {
         $sb = New-Object 'System.Text.StringBuilder'
@@ -347,7 +349,108 @@ function ConvertTo-TileRows {
 }
 
 # ------------------------------------------------------------
-# Liest Breite/Hoehe pro Level aus config.yml. Bewusst ohne externes
+# ASCII-Vorschau fuers Docker-Log (z. B. "docker compose logs maze-gen").
+# Bewusst NICHT $maze.Draw() aufrufen: Draw() startet mit Clear-Host, das
+# in einem Container ohne TTY mit "The handle is invalid" abstuerzt und
+# damit den ganzen maze-gen-Service scheitern liesse. Diese Funktion
+# liest nur $Maze.Grid aus (Klasse bleibt unangetastet), ohne Clear-Host.
+# ------------------------------------------------------------
+function Write-MazeDebugView {
+    param([Parameter(Mandatory)][Maze]$Maze)
+
+    $top = New-Object 'System.Text.StringBuilder'
+    for ($x = 0; $x -lt $Maze.Width; $x++) { [void]$top.Append(' ___') }
+    Write-Host $top.ToString()
+
+    for ($y = 0; $y -lt $Maze.Height; $y++) {
+        $line1 = New-Object 'System.Text.StringBuilder'
+        $line2 = New-Object 'System.Text.StringBuilder'
+        for ($x = 0; $x -lt $Maze.Width; $x++) {
+            $cell = $Maze.Grid[$x, $y]
+
+            $west = if ($cell.WestWall) { '|' } else { ' ' }
+            $content = if ($cell.HasPlayer) { ' P ' }
+                elseif ($cell.IsKey) { ' K ' }
+                elseif ($cell.IsEntrance) { ' E ' }
+                elseif ($cell.IsExit) { ' A ' }
+                else { '   ' }
+            $south = if ($cell.SouthWall) { '___' } else { '   ' }
+
+            [void]$line1.Append($west).Append($content)
+            [void]$line2.Append($west).Append($south)
+        }
+        [void]$line1.Append('|')
+        [void]$line2.Append('|')
+        Write-Host $line1.ToString()
+        Write-Host $line2.ToString()
+    }
+}
+
+# ------------------------------------------------------------
+# Verschiebt Eingang (P) und Ausgang (A) auf Randzellen (x=0, x=Width-1,
+# y=0 oder y=Height-1) - Eingang/Ausgang sollen immer aussen liegen,
+# nicht irgendwo mittendrin. Der Key bleibt, wo PlaceObjects() ihn
+# hingelegt hat. Setzt nur die (bereits von der Klasse als aenderbar
+# vorgesehenen) Eigenschaften der Cell-Objekte, die Klasse selbst bleibt
+# unangetastet.
+# ------------------------------------------------------------
+function Set-EdgeEntranceAndExit {
+    param([Parameter(Mandatory)][Maze]$Maze)
+
+    $edgeCells = @()
+    for ($y = 0; $y -lt $Maze.Height; $y++) {
+        for ($x = 0; $x -lt $Maze.Width; $x++) {
+            if ($x -eq 0 -or $x -eq $Maze.Width - 1 -or $y -eq 0 -or $y -eq $Maze.Height - 1) {
+                $edgeCells += $Maze.Grid[$x, $y]
+            }
+        }
+    }
+
+    $candidates = $edgeCells | Where-Object { -not $_.IsKey }
+    if ($candidates.Count -lt 2) {
+        throw "Zu wenige Randzellen fuer Eingang/Ausgang (Maze zu klein?)."
+    }
+
+    # Alte Entrance/Exit-Markierung loesen.
+    $Maze.Entrance.IsEntrance = $false
+    $Maze.Entrance.HasPlayer = $false
+    $Maze.Exit.IsExit = $false
+
+    $entranceCell = $candidates | Get-Random
+
+    # Ausgang soll nie dicht neben dem Eingang liegen - nur Randzellen
+    # jenseits eines Mindestabstands (halbe Diagonale der Maze) zulassen.
+    # Bei sehr kleinen Karten faellt das auf die am weitesten entfernte
+    # verbleibende Zelle zurueck, statt fehlzuschlagen.
+    $minDistance = [Math]::Sqrt(($Maze.Width * $Maze.Width) + ($Maze.Height * $Maze.Height)) * 0.5
+    $otherCells = $candidates | Where-Object { $_ -ne $entranceCell }
+    $farCandidates = $otherCells | Where-Object {
+        $dx = $_.X - $entranceCell.X
+        $dy = $_.Y - $entranceCell.Y
+        [Math]::Sqrt(($dx * $dx) + ($dy * $dy)) -ge $minDistance
+    }
+    if ($farCandidates.Count -gt 0) {
+        $exitCell = $farCandidates | Get-Random
+    } else {
+        $exitCell = $otherCells | Sort-Object -Descending {
+            $dx = $_.X - $entranceCell.X
+            $dy = $_.Y - $entranceCell.Y
+            ($dx * $dx) + ($dy * $dy)
+        } | Select-Object -First 1
+    }
+
+    $entranceCell.IsEntrance = $true
+    $entranceCell.HasPlayer = $true
+    $Maze.Entrance = $entranceCell
+    $Maze.Player = $entranceCell
+
+    $exitCell.IsExit = $true
+    $Maze.Exit = $exitCell
+}
+
+# ------------------------------------------------------------
+# Liest Breite/Hoehe und optionalen Seed pro Level aus config.yml. Ohne
+# Seed gilt -1 (zufaellig). Bewusst ohne externes
 # YAML-Modul (das muesste erst ins schlanke Alpine-Image installiert
 # werden) - die Datei hat ein festes, einfaches Format, dafuer reicht
 # ein kleiner zeilenweiser Parser.
@@ -367,13 +470,20 @@ function Read-MazeLevelConfig {
     foreach ($line in Get-Content -Path $Path) {
         if ($line -match '^\s*-\s*level:\s*(\d+)\s*$') {
             if ($current) { $levels += $current }
-            $current = @{ Level = [int]$Matches[1] }
+            $current = @{ Level = [int]$Matches[1]; Seed = -1 }
         }
         elseif ($current -and $line -match '^\s*width:\s*(\d+)\s*$') {
             $current.Width = [int]$Matches[1]
         }
         elseif ($current -and $line -match '^\s*height:\s*(\d+)\s*$') {
             $current.Height = [int]$Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*seed:\s*([^#]*)(?:#.*)?$') {
+            $seedValue = 0
+            if (-not [int]::TryParse($Matches[1].Trim(), [ref]$seedValue) -or $seedValue -lt -1) {
+                throw "Ungueltiger Seed fuer Level $($current.Level) in ${Path}: Erlaubt sind -1 (zufaellig) oder ganze Zahlen von 0 bis 2147483647."
+            }
+            $current.Seed = $seedValue
         }
     }
     if ($current) { $levels += $current }
@@ -397,12 +507,26 @@ if (-not $PSBoundParameters.ContainsKey('Level') -and $env:MAZE_LEVEL) {
 $configPath = Join-Path $PSScriptRoot 'config.yml'
 $levelConfig = Read-MazeLevelConfig -Path $configPath -Level $Level
 
+# Ein explizites -Seed (auch -1) hat Vorrang vor der Level-Konfiguration.
+if (-not $PSBoundParameters.ContainsKey('Seed')) {
+    $Seed = $levelConfig.Seed
+}
+
 if ($Seed -ge 0) {
     Get-Random -SetSeed $Seed | Out-Null
 }
 
 $maze = [Maze]::new($levelConfig.Width, $levelConfig.Height)
+Set-EdgeEntranceAndExit -Maze $maze
 $rows = ConvertTo-TileRows -Maze $maze
+
+# Nur eine Log-Anzeige - falls das aus irgendeinem Grund schiefgeht, soll
+# das niemals die eigentliche Kartenerzeugung unten verhindern.
+try {
+    Write-MazeDebugView -Maze $maze
+} catch {
+    Write-Warning "ASCII-Vorschau fehlgeschlagen (kein Problem fuer die Karte selbst): $($_.Exception.Message)"
+}
 
 $outputPath = if ($env:MAP_OUTPUT_PATH) { $env:MAP_OUTPUT_PATH } else { Join-Path $PSScriptRoot 'map.json' }
 $outputDir = Split-Path -Parent $outputPath
@@ -432,4 +556,4 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
 Move-Item -Path $tempPath -Destination $outputPath -Force
 
-Write-Host "Karte generiert: $outputPath (Level $Level, $($payload.width)x$($payload.height))"
+Write-Host "Karte generiert: $outputPath (Level $Level, $($payload.width)x$($payload.height), Seed $Seed)"

@@ -1,5 +1,5 @@
-// Native-resolution pixel textures. Each unchanged 32 px collision cell has
-// four 16 px paving stones; lighting is applied separately by the renderer.
+// Native-resolution pixel textures. Each 32px texture contains four 16px
+// paving stones; four textures cover a displayed cell. Lighting is separate.
 export const TILE_SIZE = 32;
 // Visual spacing is independent of the unchanged logical/collision grid.
 // Keep native 16px paving and fine walls while giving the corridors room.

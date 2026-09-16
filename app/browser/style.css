@@ -16,7 +16,12 @@ body {
     min-height: 100vh;
     width: max-content;
     display: grid;
-    place-items: center;
+    /* Mittig, solange die Karte in den Viewport passt. "safe" verhindert,
+       dass bei groesseren Karten ein Teil der Karte unerreichbar hinter
+       dem Bildschirmrand verschwindet - dann faellt es fuer den
+       ueberstehenden Teil auf Start-Ausrichtung zurueck, bleibt also
+       komplett scrollbar. */
+    place-items: safe center;
     background: #09080e;
 }
 

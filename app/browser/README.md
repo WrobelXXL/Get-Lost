@@ -20,19 +20,14 @@ generierte Karte (z. B. weil `maze-gen` noch nicht gelaufen ist), zeigt
 die Seite einen klaren Fehler statt still irgendeine Ersatz-Karte
 anzuzeigen.
 
-> Es gab vorher einen WPF-Prototyp (natives Windows-Fenster statt
-> Web-Seite). Der ist nach [wpf-prototyp/](wpf-prototyp/) verschoben und
-> nicht mehr aktiv - WPF lässt sich nicht über `http://ip:port` im
-> Browser öffnen, was für "im Netzwerk mitspielen" aber gebraucht wird.
-
 ## Dateien
 
 | Datei | Zweck |
 |---|---|
 | [index.php](index.php) | Einstiegspunkt. Liest die generierte Karte (JSON, siehe `MAP_INPUT_PATH`) ein und reicht sie als JSON an JavaScript weiter. Fehlt die Karte, liefert es einen 503-Fehler statt einer Seite. |
 | [tileset.js](tileset.js) | Erzeugt und speichert Boden-, Schutt- und Ornamentvarianten; exportiert `TILE_SIZE`, `CELL_SIZE`, `PALETTE`, `hash()` und `createTileset()`. Keine Bilddateien nötig. |
-| [mapRenderer.js](mapRenderer.js) | Zeichnet Boden und zusammenhängende Wände, platziert Dekorationen an passenden Wänden/Ecken und berechnet Lichtflächen. `renderMap()` liefert `{ lampCount, drawLights() }`. |
-| [decorations.js](decorations.js) | Erzeugt wiederverwendbare Pixel-Sprites für Gefäße, Schutt, Lüftungsgitter, Fackeln und Flammenbilder. |
+| [mapRenderer.js](mapRenderer.js) | Zeichnet Boden und zusammenhängende Wände, platziert Dekorationen an passenden Wänden/Ecken, stellt zwei Torpfosten-Säulen an die vom Generator geöffnete Außenwand am Ausgang (`placeGate()`) und berechnet Lichtflächen. `renderMap()` liefert `{ lampCount, drawLights() }`. |
+| [decorations.js](decorations.js) | Erzeugt wiederverwendbare Pixel-Sprites für Gefäße, Schutt, Lüftungsgitter, Torpfosten-Säulen, Fackeln und Flammenbilder. |
 | [game.js](game.js) | Initialisiert Karte und Canvas und steuert die sichtbaren Lichtanimationen. |
 | [style.css](style.css) | Dunkles Seitenlayout und pixelgenaue, scrollbar erreichbare Darstellung großer Karten. |
 | [../maze-gen/main.ps1](../maze-gen/main.ps1) | Erzeugt die zufällige Karte (nicht Teil dieses Ordners, aber die Gegenseite der Schnittstelle - siehe unten). |
@@ -75,8 +70,9 @@ nicht die schmalere sichtbare Wandkontur.
   Bei `prefers-reduced-motion` bleibt das Licht statisch; in einem
   versteckten Tab pausiert die Animation.
 - Der Canvas wird ohne CSS-Verkleinerung (1:1) und mit deaktivierter
-  Bildglättung dargestellt. Die Standardkarte mit 101×41 Zeichen ergibt
-  6464×2624 Canvas-Pixel; große Karten sind in beiden Richtungen scrollbar.
+  Bildglättung dargestellt. Level 1 ergibt 21×21 Zeichen und damit
+  1344×1344 Canvas-Pixel; Level 2 ergibt 31×31 Zeichen und 1984×1984 Pixel.
+  Große Karten sind in beiden Richtungen scrollbar.
 
 ## Das Karten-Format
 
@@ -85,9 +81,9 @@ Eine Karte ist ein Array von gleich langen Strings, eine Zeile pro Reihe:
 ```php
 $map = [
     "####################",
-    "#.........P........#",
+    "#P.................#",
     "#..................#",
-    "#.........A......K.#",
+    "#........K........A.",
     "####################",
 ];
 ```
@@ -101,6 +97,12 @@ $map = [
   - `A` = Ausgang
   - `K` = Key
 
+`P` und `A` liegen auf Randzellen des generierten Labyrinths, direkt
+innerhalb der äußeren Wand. Am Ausgang wird zusätzlich ein Zeichen
+dieser Außenwand zu `.`, sodass ein Durchgang nach draußen entsteht.
+Der Eingang erhält keine entsprechende Außenöffnung. Der Key bleibt
+an seiner ursprünglich generierten Position.
+
 Für den Renderer werden `P`/`A`/`K` aktuell als Boden gezeichnet
 (siehe `isFloor()` in [mapRenderer.js](mapRenderer.js): alles, was keine
 Wand und kein Leerzeichen ist, wird als Boden dargestellt). Was diese Markierungen
@@ -112,12 +114,14 @@ Das ist bewusst simpel gehalten, damit die Level-Generierung nicht wissen
 muss, wie Canvas-Rendering funktioniert - sie muss nur so ein Array
 liefern.
 
-> **Wichtig:** Die Generierungslogik selbst ([main.ps1](../maze-gen/main.ps1),
-> Klassen `Cell`/`Maze`) kommt so vom Team und wird hier nicht verändert.
-> Ergänzt wurde nur `ConvertTo-TileRows()` ganz unten in der Datei, die
-> das Zellen-Gitter der `Maze`-Klasse in das obige Zeichen-Format
-> umwandelt (statt es wie im Original per `Draw()` auf die Konsole zu
-> schreiben) und als JSON wegschreibt.
+> **Wichtig:** Die Klassen `Cell`/`Maze` in
+> [main.ps1](../maze-gen/main.ps1) stammen vom Team und bleiben unverändert.
+> Ergänzende Funktionen lesen die Level-Konfiguration, setzen Eingang
+> und Ausgang auf Randzellen und wandeln das Gitter mit
+> `ConvertTo-TileRows()` samt Ausgangsöffnung in Zeichenzeilen um.
+> `Write-MazeDebugView()` erzeugt eine ASCII-Vorschau für das Docker-Log,
+> ohne das für den Container ungeeignete `Draw()`/`Clear-Host` aufzurufen.
+> Anschließend werden die Zeichenzeilen als JSON gespeichert.
 
 ## Wie du dein Spiel hier reinbaust
 
@@ -159,16 +163,27 @@ Ansatzpunkte:
      - level: 1
        width: 10
        height: 10
+       seed: -1
 
      - level: 2
        width: 15
        height: 15
+       seed: 42
    ```
    Neues Level = neuer Eintrag in der Liste, fertig. `main.ps1` wählt
    per `-Level` (Standard: `1`) bzw. der Umgebungsvariable `MAZE_LEVEL`
    (siehe [docker-compose.yml](../../docker-compose.yml)) den passenden
    Eintrag aus. Gibt es das angeforderte Level nicht, bricht das Skript
    mit einer klaren Fehlermeldung ab (statt einer falschen Kartengröße).
+   Aus `width` × `height` Zellen werden `(2 × width + 1)` ×
+   `(2 × height + 1)` Zeichen: Level 1 ist 21×21, Level 2 ist 31×31.
+   `seed` legt den Zufallsstartwert pro Level fest. `-1` oder ein fehlender
+   Eintrag erzeugt eine zufällige Karte. Eine feste ganze Zahl von `0` bis
+   `2147483647` erzeugt bei gleichem Level und gleicher PowerShell-Version
+   dieselbe Karte einschließlich Start, Ausgang und Key. Ein explizites
+   `-Seed 42` beim Skriptaufruf überschreibt den Konfigurationswert;
+   `-Seed -1` erzwingt eine zufällige Karte trotz festem Konfigurationswert.
+   Ungültige Seed-Werte führen zu einer klaren Fehlermeldung.
    Die Renderer-Funktion (`renderMap` in `mapRenderer.js`) ist von der
    Kartengröße unabhängig - der Canvas passt seine Größe in `game.js`
    automatisch an (`canvas.width`/`canvas.height` richten sich nach
@@ -191,8 +206,9 @@ app/maze-gen/main.ps1  --schreibt-->  map.json  --liest-->  app/browser/index.ph
 ```
 
 `main.ps1` schreibt `{ "level", "width", "height", "rows": [...], "generatedAt" }`
-als JSON (Breite/Höhe kommen aus [config.yml](../maze-gen/config.yml),
-siehe Punkt 4 oben). Pfad kommt aus `$env:MAP_OUTPUT_PATH`
+als JSON. `width` und `height` bezeichnen hier die Anzahl der Zeichen,
+abgeleitet aus den Zellmaßen in [config.yml](../maze-gen/config.yml)
+(siehe Punkt 4 oben). Pfad kommt aus `$env:MAP_OUTPUT_PATH`
 (Container-Standard: `/data/map.json`). `index.php` liest denselben Pfad
 aus `$env:MAP_INPUT_PATH`. Beides wird in [docker-compose.yml](../../docker-compose.yml)
 verdrahtet - der `browser`-Service startet dort erst, nachdem `maze-gen`

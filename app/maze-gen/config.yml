@@ -1,8 +1,12 @@
+# seed: -1 erzeugt eine zufaellige Karte; 0..2147483647 einen festen Verlauf.
+# Ein explizites -Seed beim Skriptaufruf ueberschreibt den Wert des Levels.
 maze_level:
   - level: 1
     width: 10
     height: 10
+    seed: -1
 
   - level: 2
     width: 15
     height: 15
+    seed: -1

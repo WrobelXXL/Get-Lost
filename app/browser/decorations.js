@@ -182,6 +182,49 @@ function torchSprite() {
     ], { o: '#1b191e', d: '#3c302b', s: '#4d4034', b: '#65503a', l: '#9b7950', m: '#876343' }, 11, 34);
 }
 
+function pillarSprite() {
+    // Kleine Torpfosten-Saeule (Kapitell, Schaft, Sockel) fuer die Seiten
+    // einer Tor-Oeffnung (z. B. am Ausgang) - warmer Farbton wie der
+    // Wandkranz, damit sie zur Wand passt statt fremd zu wirken.
+    const w = 14, h = 40;
+    const result = canvas(w, h);
+    const ctx = result.getContext('2d');
+    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
+
+    const outline = '#1c1512';
+    const base = '#3c2a1c';
+    const mid = '#6b4526';
+    const light = '#93602f';
+    const hi = '#c9843a';
+
+    // Kapitell: oben abgerundet, hell (Blickfang).
+    rect(outline, 2, 0, 10, 1);
+    rect(hi, 3, 1, 8, 1);
+    rect(outline, 1, 2, 1, 3);
+    rect(hi, 2, 2, 10, 3);
+    rect(outline, 12, 2, 1, 3);
+    rect(light, 2, 5, 10, 2);
+    rect(outline, 1, 7, 12, 1);
+
+    // Schaft: schmaler, mit Licht-/Schattenseite und ein paar Steinringen.
+    rect(outline, 3, 8, 1, 22);
+    rect(light, 4, 8, 3, 22);
+    rect(mid, 7, 8, 2, 22);
+    rect(base, 9, 8, 1, 22);
+    for (let y = 11; y < 30; y += 6) {
+        rect(outline, 3, y, 7, 1);
+    }
+
+    // Sockel: breiter, dunkler, verankert die Saeule im Boden.
+    rect(outline, 1, 30, 12, 1);
+    rect(mid, 2, 31, 10, 3);
+    rect(outline, 1, 34, 12, 1);
+    rect(base, 3, 35, 8, 2);
+    rect(outline, 2, 37, 10, 1);
+
+    return result;
+}
+
 function flameSprites() {
     const palette = {
         d: '#752c25', r: '#af3523', o: '#d54b24',
@@ -213,6 +256,7 @@ export function createDecorations() {
         pots: potCluster(pot),
         grate: grateSprite(),
         debris: debrisSprite(),
+        pillar: pillarSprite(),
         torch: torchSprite(),
         flames: flameSprites(),
     };
