@@ -1,6 +1,7 @@
 // Presentation only: every map character and its 32px logical cell stay intact.
 import { PALETTE, hash } from './tileset.js';
 import { createDecorations } from './decorations.js';
+import { DungeonWall } from './dungeonWall.js';
 
 const CAP_LEFT = 28;
 const CAP_TOP = 13;
@@ -8,6 +9,65 @@ const CAP_WIDTH = 8;
 const FACE_HEIGHT = 30;
 const LIGHT_RADIUS = 115;
 const isFloor = ch => ch !== undefined && ch !== ' ' && ch !== '#';
+
+function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Nur Umriss-/Kanten-Akzente kommen als feste Farben - die eigentliche
+// Ziegel-/Fugen-Oberflaeche wird unten direkt aus der 32x32-Kachel in
+// dungeon-wall.js gesampelt (siehe wallTexture/sampleWallTexture), nicht
+// mehr prozedural nachgebaut. Form bleibt unser System: schmale, mit
+// Nachbarwaenden verbundene Krone, darunter eine kurze Front, danach
+// wird es dunkel - keine flaechendeckende Kachel pro Zelle.
+const WALL_COLORS = {
+    outline: hexToRgb(DungeonWall.colors.outline),
+    edge: hexToRgb(DungeonWall.colors.highlight),
+    chip: hexToRgb(DungeonWall.colors.darkRed),
+};
+
+// Die 32x32-Wandkachel aus dungeon-wall.js einmal zu rohen Pixeldaten
+// rendern, damit drawWalls() pixelweise daraus lesen kann.
+let cachedWallTexture;
+function wallTexture() {
+    if (!cachedWallTexture) {
+        const tile = DungeonWall.makeTile(1);
+        cachedWallTexture = tile.getContext('2d').getImageData(0, 0, DungeonWall.TILE, DungeonWall.TILE);
+    }
+    return cachedWallTexture;
+}
+
+// Die Vorlage ist ein abgeschlossener Block: aussen sitzen dunkle
+// Umriss- bzw. unbemalte (transparente) Pixel. Wuerde man die vollen 32
+// Pixel kacheln, taucht dieser Rand alle 32 Pixel als harte schwarze
+// Trennlinie auf. Deshalb wird nur der INNENBEREICH wiederholt, der in
+// allen genutzten Zeilen (4 bis 28) durchgehend bemalt ist - so laeuft
+// das Ziegelmuster ohne Linie durch.
+const TEX_FROM = 4;
+const TEX_TO = 28;
+const TEX_SPAN = TEX_TO - TEX_FROM + 1;
+
+// Zeilenbereiche der Vorlage, die die Wandfront nutzt:
+// 7-20 = Ziegelband (zwei Lagen mit versetzten Fugen), wird wiederholt;
+// 21-28 = gestalteter dunkler Sockel, nur ganz unten an der Front.
+const BRICK_FROM = 7;
+const BRICK_SPAN = 14;
+const TEX_FOOT_TO = 28;
+const FOOT_ROWS = 8;
+
+// tx wird ueber den Innenbereich gekachelt, ty auf die Kachelhoehe begrenzt.
+function sampleWallTexture(tx, ty) {
+    const tex = wallTexture();
+    const size = DungeonWall.TILE;
+    const x = TEX_FROM + (((tx % TEX_SPAN) + TEX_SPAN) % TEX_SPAN);
+    const y = Math.max(0, Math.min(size - 1, ty));
+    const i = (y * size + x) * 4;
+    // Sicherheitsnetz, falls doch mal eine unbemalte Stelle getroffen wird:
+    // dann die dunkle Umrissfarbe statt rohem Schwarz (0,0,0).
+    if (tex.data[i + 3] === 0) return WALL_COLORS.outline;
+    return [tex.data[i], tex.data[i + 1], tex.data[i + 2]];
+}
 
 function canvas(width, height) {
     const result = document.createElement('canvas');
@@ -37,15 +97,10 @@ function wallMask(map, t, width, height) {
             if (wall(x, y + 1)) rect(px + CAP_LEFT, py + CAP_TOP + CAP_WIDTH, CAP_WIDTH, t - CAP_TOP - CAP_WIDTH);
         }
     }
-    // A one-pixel bevel at exposed corners, continuous at every tile seam.
-    const corners = [];
-    for (let y = 1; y < height - 1; y++) {
-        for (let x = 1; x < width - 1; x++) {
-            const i = y * width + x;
-            if (mask[i] && ((!mask[i - 1] || !mask[i + 1]) && (!mask[i - width] || !mask[i + width]))) corners.push(i);
-        }
-    }
-    for (const i of corners) mask[i] = 0;
+    // Frueher wurde hier an freiliegenden Ecken je ein Pixel entfernt
+    // ("Abschraegung"). Das liess die Ecken rund/ausgefranst wirken und
+    // riss kleine Luecken in die Krone - bleibt jetzt weg, Ecken sind
+    // sauber rechtwinklig.
     return mask;
 }
 
@@ -100,12 +155,7 @@ function drawWalls(ctx, mask, width, height) {
     const layer = canvas(width, height);
     const c = layer.getContext('2d');
     const pixels = c.createImageData(width, height);
-    const colors = {
-        outline: [35, 24, 33], mortar: [45, 32, 39],
-        bricks: [[83, 44, 41], [96, 49, 40], [71, 42, 44], [104, 53, 39]],
-        caps: [[176, 102, 43], [182, 108, 46], [163, 87, 39], [188, 114, 49]],
-        edge: [211, 137, 60], chip: [136, 79, 43],
-    };
+    const colors = WALL_COLORS;
     function put(i, color, alpha = 255) {
         const k = i * 4;
         pixels.data[k] = color[0]; pixels.data[k + 1] = color[1];
@@ -118,39 +168,47 @@ function drawWalls(ctx, mask, width, height) {
             const i = y * width + x;
             if (mask[i]) {
                 lastCap[x] = y;
+                // Aussenecken leicht abrunden: liegt ein Kronenpixel in
+                // beiden Achsen frei, ist es die aeussere Ecke - die bleibt
+                // ungezeichnet, sodass der Boden durchscheint. Bewusst
+                // transparent statt dunkel uebermalt, sonst entstuenden dort
+                // wieder schwarze Kerben.
+                if ((!at(x - 1, y) || !at(x + 1, y)) && (!at(x, y - 1) || !at(x, y + 1))) continue;
                 const vertical = at(x, y - 4) && at(x, y + 4);
                 const along = vertical ? y : x;
-                const seed = hash(Math.floor(x / 32), Math.floor(y / 32), 101);
-                let color = colors.caps[seed % 4];
-                if (along % 32 === 0) color = colors.outline;
-                else if (along % 32 === 1) color = colors.chip;
-                else if (!at(x - 1, y) || !at(x, y - 1)) color = colors.edge;
+                // Krone: die warme orange Kante der Vorlage sitzt bei
+                // Zeile 4-5 (Zeile 1-2 ist der dunkle Rand darueber) -
+                // horizontal entlang der Wandrichtung gekachelt, damit sie
+                // durchgehend und sauber wirkt statt an Ecken zu springen.
+                let color = sampleWallTexture(along, 4);
+                if (!at(x - 1, y) || !at(x, y - 1)) color = colors.edge;
                 else if (!at(x + 1, y) || !at(x, y + 1)) color = colors.chip;
-                if (hash(x, y, 5) % 139 === 0) color = colors.edge;
-                if (hash(x, y, 6) % 157 === 0) color = colors.chip;
                 put(i, color);
                 continue;
             }
             const distanceToCap = y - lastCap[x];
             const depth = distanceToCap <= FACE_HEIGHT ? distanceToCap : 0;
             if (depth) {
-                const row = Math.floor((y - CAP_TOP) / 11);
-                const bx = x + (row % 2) * 8;
-                const seed = hash(Math.floor(bx / 16), row, 10);
-                let color = colors.bricks[seed % 4];
                 // Rare broken feet reveal the rubble below, with a stepped
                 // outline above the chip instead of a ruler-straight edge.
                 const chipped = hash(Math.floor(x / 16), y - depth, 77) % 7 === 0;
                 const missing = chipped ? Math.max(0, 3 - Math.abs(7 - x % 16)) : 0;
-                if (depth > FACE_HEIGHT - missing) continue;
-                const bottom = depth >= FACE_HEIGHT - missing - hash(Math.floor(x / 3), y - depth, 3) % 2;
-                if (bx % 16 === 0 || (y - CAP_TOP) % 11 === 0) color = colors.mortar;
-                else if ((y - CAP_TOP) % 11 === 1 && depth < 12) color = [114, 60, 43];
-                // Short fractures belong to individual stones, not a noisy overlay.
-                if (seed % 9 === 0 && (bx % 16 === 6 + Math.floor(((y - CAP_TOP) % 11) / 3))) color = colors.mortar;
-                if (depth > 14) color = color.map((v, k) => Math.floor(v * (k === 2 ? 0.88 : 0.74)));
+                const faceBottom = FACE_HEIGHT - missing;
+                if (depth > faceBottom) continue;
+                const bottom = depth >= faceBottom - hash(Math.floor(x / 3), y - depth, 3) % 2;
+                // Ziegelband der Vorlage (Zeile 7-20: zwei Lagen mit
+                // versetzten Fugen) fortlaufend wiederholen - die Fuge am
+                // Ende jeder Lage kaschiert den Uebergang, deshalb faellt
+                // die Wiederholung nicht als Naht auf. Nur die untersten
+                // Reihen nutzen den gestalteten dunklen Sockel der Vorlage
+                // (Zeile 21-28). Vorher war der gesamte untere Teil auf
+                // Zeile 28 geklemmt - dort fehlte die Textur komplett.
+                const toFoot = faceBottom - depth;
+                const tileY = toFoot < FOOT_ROWS
+                    ? TEX_FOOT_TO - toFoot
+                    : BRICK_FROM + (depth % BRICK_SPAN);
+                let color = sampleWallTexture(x, tileY);
                 if (bottom || !at(x - 1, y - depth)) color = colors.outline;
-                if (hash(x, y, 28) % 83 === 0) color = colors.mortar;
                 put(i, color);
             } else if (at(x - 1, y) || at(x - 2, y)) {
                 put(i, colors.outline);
