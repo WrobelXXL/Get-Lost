@@ -4,15 +4,21 @@ import { renderMap } from './mapRenderer.js';
 
 const SCALE = 1;
 const map = window.__MAP__;
-const tileset = createTileset();
+// Written by index.php from the maze-gen level config (colo_schema /
+// funiture in config.yml); absent for old map.json files, hence the ??.
+const decor = window.__DECOR__ ?? {};
+// Ab complex 60 generiert main.ps1 ein feineres Zellenraster und liefert
+// eine passend kleinere cellSize mit, damit die Karte trotzdem in etwa
+// gleich gross bleibt; fehlt sie (aeltere map.json), gilt CELL_SIZE.
+const tileset = createTileset(decor.colorScheme?.floorr, decor.cellSize ?? CELL_SIZE);
 const canvas = document.getElementById('map');
-canvas.width = map[0].length * CELL_SIZE;
-canvas.height = map.length * CELL_SIZE;
+canvas.width = map[0].length * tileset.cellSize;
+canvas.height = map.length * tileset.cellSize;
 canvas.style.width = `${canvas.width * SCALE}px`;
 canvas.style.height = `${canvas.height * SCALE}px`;
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
-const scene = renderMap(ctx, map, tileset);
+const scene = renderMap(ctx, map, tileset, decor);
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;

@@ -1,4 +1,5 @@
 import { referenceTextures } from './referenceArt.js';
+import { colorize } from './colorize.js';
 
 /** Reference-pixel masonry, shared by connected walls and legacy previews. */
 const DungeonWall = (() => {
@@ -17,14 +18,18 @@ const DungeonWall = (() => {
     return result;
   }
 
-  let materials;
-  function makeMaterials() {
+  // Keyed by wall color (empty string = untouched default); see tileset.js's
+  // matching tilesetCache for why this can't be a single shared singleton.
+  const materialsCache = new Map();
+  function makeMaterials(wandColor = '') {
+    if (materialsCache.has(wandColor)) return materialsCache.get(wandColor);
     // Eight different broad bricks and their actual chips, joints and rust
     // patches; static palette indices avoid runtime noise and image loading.
-    materials ??= Object.freeze({
-      face: referenceTextures('face')[0],
-      cap: referenceTextures('cap')[0],
+    const materials = Object.freeze({
+      face: colorize(referenceTextures('face')[0], wandColor, C.orange),
+      cap: colorize(referenceTextures('cap')[0], wandColor, C.orange),
     });
+    materialsCache.set(wandColor, materials);
     return materials;
   }
 

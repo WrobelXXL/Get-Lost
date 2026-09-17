@@ -1,29 +1,56 @@
 // Presentation only: every map character and its 32px logical cell stay intact.
-import { PALETTE, hash } from './tileset.js';
+import { PALETTE, hash, CELL_SIZE } from './tileset.js';
 import { createDecorations } from './decorations.js';
 import { DungeonWall } from './dungeonWall.js';
 
-const CAP_LEFT = 28;
-const CAP_TOP = 13;
-const CAP_WIDTH = 8;
-const FACE_HEIGHT = 36;
+// Wall-cap geometry, hand-tuned in pixels for a 64px (CELL_SIZE) cell.
+// High-complexity levels render at half that (see tileset.js's cellSize
+// override / main.ps1's Get-MazeResolutionTier), so every consumer scales
+// these by the actual cell size via wallGeometry() instead of using them
+// directly - each BASE_ value is chosen to stay a whole number at both the
+// normal and the halved cell size.
+const BASE_CAP_LEFT = 28;
+const BASE_CAP_TOP = 14;
+const BASE_CAP_WIDTH = 8;
+const BASE_FACE_HEIGHT = 36;
 const LIGHT_RADIUS = 58;
 const isFloor = ch => ch !== undefined && ch !== ' ' && ch !== '#';
+
+function wallGeometry(t) {
+    const s = t / CELL_SIZE;
+    return {
+        capLeft: Math.round(BASE_CAP_LEFT * s),
+        capTop: Math.round(BASE_CAP_TOP * s),
+        capWidth: Math.round(BASE_CAP_WIDTH * s),
+        faceHeight: Math.round(BASE_FACE_HEIGHT * s),
+    };
+}
 
 function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+// Turns a furniture type name into a stable per-cell salt, independent from
+// the built-in salts below, so two config-driven types never draw
+// correlated pseudo-random numbers from the same underlying hash.
+function typeSalt(type) {
+    let h = 0;
+    for (let i = 0; i < type.length; i++) h = (h * 131 + type.charCodeAt(i)) >>> 0;
+    return h;
+}
+
 // The hand-authored face and coping have independent, seamless materials.
 // Never repeat the outline of a standalone wall sprite across a long wall.
-let cachedWallMaterials;
-function wallMaterials() {
-    if (!cachedWallMaterials) {
-        cachedWallMaterials = Object.fromEntries(Object.entries(DungeonWall.makeMaterials()).map(([key, tile]) =>
-            [key, tile.getContext('2d').getImageData(0, 0, tile.width, tile.height)]));
+// Keyed by wall color (empty string = untouched default); see tileset.js's
+// matching tilesetCache for why this can't be a single shared singleton.
+const wallMaterialsCache = new Map();
+function wallMaterials(wandColor = '') {
+    if (!wallMaterialsCache.has(wandColor)) {
+        wallMaterialsCache.set(wandColor, Object.fromEntries(Object.entries(DungeonWall.makeMaterials(wandColor)).map(([key, tile]) =>
+            [key, tile.getContext('2d').getImageData(0, 0, tile.width, tile.height)])));
     }
-    return cachedWallMaterials;
+    return wallMaterialsCache.get(wandColor);
 }
 
 function canvas(width, height) {
@@ -36,6 +63,7 @@ function canvas(width, height) {
 // Connected caps form continuous thin walls, including bends and junctions.
 // Rounding changes only a few contour pixels, never the logical wall cells.
 function wallMask(map, t, width, height) {
+    const { capLeft, capTop, capWidth } = wallGeometry(t);
     const mask = new Uint8Array(width * height);
     function rect(x, y, w, h) {
         for (let row = y; row < y + h; row++) {
@@ -47,11 +75,11 @@ function wallMask(map, t, width, height) {
         for (let x = 0; x < map[y].length; x++) {
             if (!wall(x, y)) continue;
             const px = x * t, py = y * t;
-            rect(px + CAP_LEFT, py + CAP_TOP, CAP_WIDTH, CAP_WIDTH);
-            if (wall(x - 1, y)) rect(px, py + CAP_TOP, CAP_LEFT, CAP_WIDTH);
-            if (wall(x + 1, y)) rect(px + CAP_LEFT + CAP_WIDTH, py + CAP_TOP, t - CAP_LEFT - CAP_WIDTH, CAP_WIDTH);
-            if (wall(x, y - 1)) rect(px + CAP_LEFT, py, CAP_WIDTH, CAP_TOP);
-            if (wall(x, y + 1)) rect(px + CAP_LEFT, py + CAP_TOP + CAP_WIDTH, CAP_WIDTH, t - CAP_TOP - CAP_WIDTH);
+            rect(px + capLeft, py + capTop, capWidth, capWidth);
+            if (wall(x - 1, y)) rect(px, py + capTop, capLeft, capWidth);
+            if (wall(x + 1, y)) rect(px + capLeft + capWidth, py + capTop, t - capLeft - capWidth, capWidth);
+            if (wall(x, y - 1)) rect(px + capLeft, py, capWidth, capTop);
+            if (wall(x, y + 1)) rect(px + capLeft, py + capTop + capWidth, capWidth, t - capTop - capWidth);
         }
     }
     // Three deliberate steps at convex corners; one filled pixel softens
@@ -77,6 +105,7 @@ function wallMask(map, t, width, height) {
 
 function drawGround(ctx, map, tileset) {
     const t = tileset.cellSize;
+    const { capLeft, capTop, capWidth, faceHeight } = wallGeometry(t);
     const textureSize = tileset.tileSize;
     const ch = (x, y) => map[y]?.[x];
     for (let y = 0; y < map.length; y++) {
@@ -88,10 +117,10 @@ function drawGround(ctx, map, tileset) {
                 // The same paving continues to the actual wall contour.
                 // Only the outside of the dungeon is negative space.
                 const empty = (xx, yy) => ch(xx, yy) === undefined || ch(xx, yy) === ' ';
-                const left = empty(x - 1, y) ? CAP_LEFT : 0;
-                const right = empty(x + 1, y) ? CAP_LEFT + CAP_WIDTH + 2 : t;
-                const top = empty(x, y - 1) ? CAP_TOP : 0;
-                const bottom = empty(x, y + 1) ? Math.min(t, CAP_TOP + CAP_WIDTH + FACE_HEIGHT) : t;
+                const left = empty(x - 1, y) ? capLeft : 0;
+                const right = empty(x + 1, y) ? capLeft + capWidth + 2 : t;
+                const top = empty(x, y - 1) ? capTop : 0;
+                const bottom = empty(x, y + 1) ? Math.min(t, capTop + capWidth + faceHeight) : t;
                 ctx.beginPath();
                 ctx.rect(px + left, py + top, right - left, bottom - top);
                 ctx.clip();
@@ -111,12 +140,13 @@ function drawGround(ctx, map, tileset) {
     }
 }
 
-function drawWalls(ctx, mask, width, height) {
+function drawWalls(ctx, mask, width, height, wandColor, t) {
+    const { capLeft, capTop, capWidth, faceHeight } = wallGeometry(t);
     const layer = canvas(width, height);
     const c = layer.getContext('2d');
     const pixels = c.createImageData(width, height);
     const outline = hexToRgb(DungeonWall.colors.outline);
-    const materials = wallMaterials();
+    const materials = wallMaterials(wandColor);
     function put(i, color, alpha = 255) {
         const k = i * 4;
         pixels.data[k] = color[0]; pixels.data[k + 1] = color[1];
@@ -131,31 +161,31 @@ function drawWalls(ctx, mask, width, height) {
         pixels.data[target + 3] = 255;
     }
     const at = (x, y) => x >= 0 && y >= 0 && x < width && y < height && mask[y * width + x];
-    const lastCap = new Int32Array(width).fill(-FACE_HEIGHT - 10);
+    const lastCap = new Int32Array(width).fill(-faceHeight - 10);
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
             const i = y * width + x;
             if (mask[i]) {
                 lastCap[x] = y;
-                const vertical = (at(x, y - CAP_WIDTH) || at(x, y + CAP_WIDTH)) && !(at(x - CAP_WIDTH, y) || at(x + CAP_WIDTH, y));
+                const vertical = (at(x, y - capWidth) || at(x, y + capWidth)) && !(at(x - capWidth, y) || at(x + capWidth, y));
                 const along = vertical ? y : x;
-                const across = vertical ? x % 64 - CAP_LEFT : y % 64 - CAP_TOP;
+                const across = vertical ? x % t - capLeft : y % t - capTop;
                 material(i, materials.cap, along, across);
                 continue;
             }
             const distanceToCap = y - lastCap[x];
-            const depth = distanceToCap <= FACE_HEIGHT ? distanceToCap : 0;
+            const depth = distanceToCap <= faceHeight ? distanceToCap : 0;
             if (depth) {
                 material(i, materials.face, x, depth - 1);
-                if (x === 0 || y - lastCap[x - 1] > FACE_HEIGHT) put(i, outline);
+                if (x === 0 || y - lastCap[x - 1] > faceHeight) put(i, outline);
             } else if (at(x - 1, y)) {
                 put(i, outline);
             } else if (at(x - 2, y)) {
                 put(i, outline, 90);
             } else {
                 const d = x >= 2 ? y - lastCap[x - 2] : Infinity;
-                if (d === FACE_HEIGHT + 1) put(i, [31, 27, 28], 65);
-                else if (d === FACE_HEIGHT + 2) put(i, [31, 27, 28], 28);
+                if (d === faceHeight + 1) put(i, [31, 27, 28], 65);
+                else if (d === faceHeight + 2) put(i, [31, 27, 28], 28);
             }
         }
     }
@@ -163,7 +193,7 @@ function drawWalls(ctx, mask, width, height) {
     ctx.drawImage(layer, 0, 0);
 }
 
-function placeDetails(ctx, map, t, sprites) {
+function placeDetails(ctx, map, t, sprites, furniture = []) {
     const lamps = [], occupied = [];
     const ch = (x, y) => map[y]?.[x];
     const clear = (x, y, distance) => occupied.every(p => Math.hypot(p.x - x, p.y - y) >= distance);
@@ -171,13 +201,44 @@ function placeDetails(ctx, map, t, sprites) {
         ctx.drawImage(sprite, Math.round(x - sprite.width / 2), Math.round(y - sprite.height));
         occupied.push({ x, y });
     }
+
+    // "lamp" stays wired to the wall-mounted torch/light-source logic below
+    // (it feeds the returned lamps array, unlike plain floor clutter), so it
+    // only contributes its probability here - its "dependencies" is not
+    // read at all. Unlike the generic furniture below, a torch is always a
+    // wall bracket sprite (see torchSprite()), so it always needs a north
+    // wall; there's no free-standing variant to fall back to. No config
+    // entry for "lamp" means no torches at all - config.yml is the only
+    // source of truth here, there's no hidden JS-side default to fall back
+    // on (an empty "funiture" list must mean nothing gets placed).
+    const lampChance = furniture.find(f => f.type === 'lamp')?.probability ?? 0;
+    // "pot"/"grate"/"debris" are ambient floor clutter with the same
+    // config-driven on/off switch as everything else below - previously
+    // these three ran unconditionally with hardcoded odds, which is why an
+    // emptied-out funiture list still left props lying around.
+    const potChance = furniture.find(f => f.type === 'pot')?.probability ?? 0;
+    const grateChance = furniture.find(f => f.type === 'grate')?.probability ?? 0;
+    const debrisChance = furniture.find(f => f.type === 'debris')?.probability ?? 0;
+    // Everything else in config.yml's funiture list - skipped for types that
+    // don't (yet) have a matching sprite, so an entry can sit in config.yml
+    // ahead of its artwork existing.
+    const extra = furniture.filter(f => !['lamp', 'pot', 'grate', 'debris'].includes(f.type) && sprites[f.type]);
+
+    // A maze corridor has far more floor cells than a room-based dungeon
+    // would have rooms, so rolling every clutter/furniture chance on every
+    // single floor cell makes even a low probability ("1") produce several
+    // hits across the map. Only a sparse subset of cells ("sites") are
+    // considered at all, so "probability" reads as a chance per notable
+    // spot rather than a chance per individual floor tile.
+    const SITE_SPACING = 12;
+
     for (let y = 0; y < map.length; y++) {
         for (let x = 0; x < map[y].length; x++) {
             if (!isFloor(ch(x, y))) continue;
             const seed = hash(x, y, 813);
-            const north = ch(x, y - 1) === '#';
+            const north = ch(x, y - 1) === '#', south = ch(x, y + 1) === '#';
             const west = ch(x - 1, y) === '#', east = ch(x + 1, y) === '#';
-            if (north && seed % 4 === 0) {
+            if (north && seed % 100 < lampChance) {
                 const lx = x * t + t / 2, ly = y * t - 7;
                 if (lamps.every(p => Math.hypot(p.x - lx, p.y - ly) >= 100)) {
                     prop(sprites.torch, lx, ly + 10);
@@ -186,15 +247,45 @@ function placeDetails(ctx, map, t, sprites) {
             }
             // Marked gameplay cells remain visually clear. Props are not collisions.
             if (ch(x, y) !== '.') continue;
-            if ((west || east) && (north || ch(x, y + 1) === '#') && seed % 5 === 0) {
+            if (hash(x, y, 4021) % SITE_SPACING !== 0) continue;
+
+            // One prop at most per site: the pot/grate/debris chain and the
+            // config-driven loop below used to run independently, so both
+            // could claim the very same cell and draw on top of each other.
+            // "placed" tracks whether this site is already taken before the
+            // config loop gets its turn.
+            let placed = false;
+            const potSeed = hash(x, y, typeSalt('pot'));
+            if ((west || east) && (north || south) && potSeed % 100 < potChance) {
                 const px = x * t + (west ? -9 : t + 9), py = y * t + t / 2;
-                if (clear(px, py, 28)) prop(seed % 3 ? sprites.pot : sprites.pots, px, py);
-            } else if (north && seed % 23 === 0) {
+                if (clear(px, py, 28)) { prop(potSeed % 3 ? sprites.pot : sprites.pots, px, py); placed = true; }
+            } else if (north && hash(x, y, typeSalt('grate')) % 100 < grateChance) {
                 const px = x * t + t / 2, py = y * t + 2;
-                if (clear(px, py, 28)) prop(sprites.grate, px, py);
-            } else if ((west || east || north) && seed % 11 === 0) {
+                if (clear(px, py, 28)) { prop(sprites.grate, px, py); placed = true; }
+            } else if ((west || east || north) && hash(x, y, typeSalt('debris')) % 100 < debrisChance) {
                 const px = x * t + (west ? 2 : east ? t - 2 : t / 2), py = y * t + (north ? 3 : t / 2);
-                if (clear(px, py, 22)) prop(sprites.debris, px, py);
+                if (clear(px, py, 22)) { prop(sprites.debris, px, py); placed = true; }
+            }
+            if (placed) continue;
+
+            // Config-driven furniture: "corridor" and the documented "none"
+            // default drop it anywhere on open floor. "border" hugs a wall -
+            // restricted to north, because every sprite here (table, sofa, ...)
+            // is hand-drawn as a front-facing object for a north wall; nothing
+            // rotates it, so pinning it to a west/east/south wall would just
+            // show it facing the wrong way. One item per cell at most, first
+            // matching entry wins.
+            for (const entry of extra) {
+                if (entry.dependencies === 'border' && !north) continue;
+                const itemSeed = hash(x, y, typeSalt(entry.type));
+                if (itemSeed % 100 >= entry.probability) continue;
+                const sprite = sprites[entry.type];
+                let px = x * t + t / 2, py = y * t + t / 2 + sprite.height / 2;
+                if (entry.dependencies === 'border') {
+                    py = y * t + sprite.height + 2;
+                }
+                if (clear(px, py, Math.max(sprite.width, sprite.height) * 0.55)) prop(sprite, px, py);
+                break;
             }
         }
     }
@@ -280,18 +371,25 @@ function lightPatch(base, mask, lamp) {
 }
 
 /** Render once; return a bounded light animation layer for game.js. */
-export function renderMap(ctx, map, tileset) {
+export function renderMap(ctx, map, tileset, decor = {}) {
+    const { colorScheme = {}, furniture = [] } = decor;
     const { width, height } = ctx.canvas;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = PALETTE.void;
     ctx.fillRect(0, 0, width, height);
     drawGround(ctx, map, tileset);
     const mask = wallMask(map, tileset.cellSize, width, height);
-    drawWalls(ctx, mask, width, height);
+    drawWalls(ctx, mask, width, height, colorScheme.wand, tileset.cellSize);
     const sprites = createDecorations();
-    const lamps = placeDetails(ctx, map, tileset.cellSize, sprites);
+    const lamps = placeDetails(ctx, map, tileset.cellSize, sprites, furniture);
     placeGate(ctx, map, tileset.cellSize, sprites, 'P');
     placeGate(ctx, map, tileset.cellSize, sprites, 'A');
+    // Faint ambient dimming everywhere; lamp glow (drawLights) brightens its
+    // own radius back up, so only corners without a nearby torch read darker.
+    ctx.fillStyle = PALETTE.void;
+    ctx.globalAlpha = 0.16;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalAlpha = 1;
     const base = canvas(width, height);
     base.getContext('2d', { willReadFrequently: true }).drawImage(ctx.canvas, 0, 0);
     const lights = lamps.map(lamp => ({ ...lamp, patch: null }));

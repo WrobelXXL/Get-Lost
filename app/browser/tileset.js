@@ -1,6 +1,7 @@
 // Native 16px paving stones, taken from the supplied visual reference.
 // Four stones form a cached 32px texture; map cells keep their existing size.
 import { referenceTextures } from './referenceArt.js';
+import { colorize } from './colorize.js';
 
 export const TILE_SIZE = 32;
 export const CELL_SIZE = 64;
@@ -51,18 +52,24 @@ function buildFloor(variant, stones) {
     return image;
 }
 
-let cachedTileset;
-export function createTileset() {
-    if (cachedTileset) return cachedTileset;
+// Keyed by floor color + cell size (empty string = untouched default) so a
+// level with a colo_schema override, or a different complexity resolution
+// tier (see main.ps1's Get-MazeResolutionTier), never clobbers another
+// level's cached tileset.
+const tilesetCache = new Map();
+export function createTileset(floorColor = '', cellSize = CELL_SIZE) {
+    const cacheKey = `${floorColor}|${cellSize}`;
+    if (tilesetCache.has(cacheKey)) return tilesetCache.get(cacheKey);
     const [voidTile, ctx] = canvas();
     ctx.fillStyle = PALETTE.void;
     ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
     const stones = referenceTextures('floor');
-    const floor = Array.from({ length: 128 }, (_, variant) => buildFloor(variant, stones));
-    cachedTileset = {
-        tileSize: TILE_SIZE, cellSize: CELL_SIZE, void: voidTile, floor,
+    const floor = Array.from({ length: 128 }, (_, variant) => colorize(buildFloor(variant, stones), floorColor, PALETTE.floor));
+    const result = {
+        tileSize: TILE_SIZE, cellSize, void: voidTile, floor,
         // Legacy consumers receive the same paving, never a perimeter material.
         worn: floor.slice(64), exterior: floor.slice(64), ornament: floor.slice(0, 16),
     };
-    return cachedTileset;
+    tilesetCache.set(cacheKey, result);
+    return result;
 }

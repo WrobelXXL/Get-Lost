@@ -48,7 +48,7 @@ class Maze {
     [Cell] $Key
     [Cell] $Player
 
-    Maze([int] $width, [int] $height) {
+    Maze([int] $width, [int] $height, [int] $complex) {
         if ($width -lt 2) {
             throw "Maze width must be at least 2."
         }
@@ -60,7 +60,7 @@ class Maze {
         $this.Height = $height
 
         $this.CreateGrid()
-        $this.GenerateMaze()
+        $this.GenerateMaze($complex)
         $this.PlaceObjects()
     }
 
@@ -74,39 +74,51 @@ class Maze {
         }
     }
 
-    [void] GenerateMaze() {
-        # Pick a random starting cell
+    # "Growing Tree"-Algorithmus: haelt aktive Zellen in einer Liste statt
+    # einem reinen Stack. Waehlt man immer die zuletzt hinzugefuegte Zelle
+    # (randomPickChance 0), entsteht ein reiner DFS/Stack-Aufbau - lange,
+    # gerade Gaenge mit wenigen Abzweigungen (Baseline, complex 10). Je
+    # hoeher randomPickChance, desto oefter wird stattdessen eine
+    # zufaellige aktive Zelle gewaehlt (Prim-artig) - das erzeugt viele
+    # kurze Gaenge und Sackgassen, also mehr Abzweigungen/Entscheidungen
+    # und damit einen schwerer zu lesenden Irrgarten. Es bleibt dabei ein
+    # Spannbaum (keine Schleifen) - anders als Schleifen, die Abkuerzungen
+    # und damit zusaetzliche, leichtere Wege schaffen wuerden.
+    [void] GenerateMaze([int] $complex) {
+        $randomPickChance = [Math]::Max(0.0, [Math]::Min(($complex - 10) / 100.0, 0.9))
+
         $startX = Get-Random -Minimum 0 -Maximum $this.Width
         $startY = Get-Random -Minimum 0 -Maximum $this.Height
 
         $startCell = $this.Grid[$startX, $startY]
         $startCell.Visited = $true
 
-        # Stack used by the depth-first search
-        $stack = [System.Collections.Stack]::new()
-        $stack.Push($startCell)
+        $active = [System.Collections.Generic.List[Cell]]::new()
+        $active.Add($startCell)
 
-        while ($stack.Count -gt 0) {
-            # Look at the current cell
-            $currentCell = $stack.Peek()
+        while ($active.Count -gt 0) {
+            if ((Get-Random -Minimum 0.0 -Maximum 1.0) -lt $randomPickChance) {
+                $index = Get-Random -Minimum 0 -Maximum $active.Count
+            } else {
+                $index = $active.Count - 1
+            }
+            $currentCell = $active[$index]
 
             # Find a random unvisited neighbour
             $neighbour = $this.GetRandomUnvisitedNeighbour($currentCell)
 
             if ($null -eq $neighbour) {
-                # No unvisited neighbours remain. Backtrack.
-                $stack.Pop()
+                # No unvisited neighbours remain. Drop this cell from the active set.
+                $active.RemoveAt($index)
                 continue
             }
 
             # Remove the wall between the two cells
             $this.RemoveWallBetween($currentCell, $neighbour)
 
-            # Mark the neighbour as visited
+            # Mark the neighbour as visited and keep it active
             $neighbour.Visited = $true
-
-            # Continue from the new cell
-            $stack.Push($neighbour)
+            $active.Add($neighbour)
         }
     }
 
@@ -449,16 +461,61 @@ function Set-EdgeEntranceAndExit {
 }
 
 # ------------------------------------------------------------
-# Liest Breite/Hoehe und optionalen Seed pro Level aus config.yml. Ohne
-# Seed gilt -1 (zufaellig). Bewusst ohne externes
-# YAML-Modul (das muesste erst ins schlanke Alpine-Image installiert
-# werden) - die Datei hat ein festes, einfaches Format, dafuer reicht
-# ein kleiner zeilenweiser Parser.
+# Schneidet einen trailing "# Kommentar" und umschliessende
+# Anfuehrungszeichen von einem rohen YAML-Skalarwert (alles hinter
+# "key:") ab. "wert" bzw. "wert" # kommentar wie in config.yml ("Level 1",
+# "lamp", "border", ...). Ein leerer Wert (z. B. "wand:" ohne Text dahinter)
+# wird zu $null, damit "nicht gesetzt" sauber von einem echten Wert zu
+# unterscheiden ist.
 # ------------------------------------------------------------
-function Read-MazeLevelConfig {
+function ConvertFrom-YamlScalar {
+    param([string]$Raw)
+
+    $value = $Raw.Trim()
+    if ($value.StartsWith('"')) {
+        if ($value -match '^"([^"]*)"') { return $Matches[1] }
+        return $null
+    }
+    $hashIndex = $value.IndexOf('#')
+    if ($hashIndex -ge 0) { $value = $value.Substring(0, $hashIndex) }
+    $value = $value.Trim()
+    if ($value.Length -eq 0) { return $null }
+    $value
+}
+
+# ------------------------------------------------------------
+# Liest Breite/Hoehe, optionalen Seed, Complex, Farbschema und
+# Funiture-Liste fuer ALLE Level aus config.yml (nicht nur eins). Ohne
+# Seed gilt -1 (zufaellig); ohne complex gilt 10 (reiner Spannbaum, keine
+# Schleifen); ohne colo_schema bleiben wand/floorr $null (Renderer nutzt
+# dann seine Standardfarben); ohne funiture-Liste bleibt sie leer
+# (Renderer faellt auf seine eingebauten Standard-Wahrscheinlichkeiten
+# zurueck). Bewusst ohne externes YAML-Modul (das muesste erst ins
+# schlanke Alpine-Image installiert werden) - die Datei hat ein festes,
+# einfaches Format, dafuer reicht ein kleiner zeilenweiser Parser mit zwei
+# "offenen" Objekten ($current fuer das Level, $currentItem fuer den
+# gerade gelesenen funiture-Eintrag).
+# ------------------------------------------------------------
+# Ab complex 60 wird intern ein doppelt so feines Zellenraster erzeugt
+# (mehr, schmalere Gaenge auf derselben Kartenflaeche). Damit die Karte im
+# Browser dabei trotzdem gleich gross bleibt, muss dort mit halber
+# Zellgroesse gerendert werden - "cellSize" wird deshalb mit in die
+# generierte map-N.json geschrieben (siehe app/browser/tileset.js:
+# CELL_SIZE ist dessen Normalwert/Referenz fuer 64px-Zellen, dieselben 64
+# stehen auch als Referenzgroesse in app/browser/mapRenderer.js).
+# ------------------------------------------------------------
+function Get-MazeResolutionTier {
+    param([Parameter(Mandatory)][int]$Complex)
+
+    if ($Complex -ge 60) {
+        return @{ Scale = 2; CellSizePx = 32 }
+    }
+    return @{ Scale = 1; CellSizePx = 64 }
+}
+
+function Read-MazeLevelConfigs {
     param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][int]$Level
+        [Parameter(Mandatory)][string]$Path
     )
 
     if (-not (Test-Path $Path)) {
@@ -467,10 +524,20 @@ function Read-MazeLevelConfig {
 
     $levels = @()
     $current = $null
+    $currentItem = $null
     foreach ($line in Get-Content -Path $Path) {
         if ($line -match '^\s*-\s*level:\s*(\d+)\s*$') {
+            if ($currentItem -and $current) { $current.Furniture += $currentItem }
+            $currentItem = $null
             if ($current) { $levels += $current }
-            $current = @{ Level = [int]$Matches[1]; Seed = -1 }
+            $current = @{
+                Level = [int]$Matches[1]; Seed = -1; Name = $null; Complex = 10
+                ColorScheme = @{ Wand = $null; Floorr = $null }
+                Furniture = @()
+            }
+        }
+        elseif ($current -and $line -match '^\s*name:\s*(.*)$') {
+            $current.Name = ConvertFrom-YamlScalar $Matches[1]
         }
         elseif ($current -and $line -match '^\s*width:\s*(\d+)\s*$') {
             $current.Width = [int]$Matches[1]
@@ -485,75 +552,138 @@ function Read-MazeLevelConfig {
             }
             $current.Seed = $seedValue
         }
+        elseif ($current -and $line -match '^\s*complex:\s*(\d+)\s*(?:#.*)?$') {
+            $current.Complex = [int]$Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*wand:\s*(.*)$') {
+            $current.ColorScheme.Wand = ConvertFrom-YamlScalar $Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*floorr:\s*(.*)$') {
+            $current.ColorScheme.Floorr = ConvertFrom-YamlScalar $Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*-\s*type:\s*(.*)$') {
+            if ($currentItem) { $current.Furniture += $currentItem }
+            $currentItem = @{ Type = ConvertFrom-YamlScalar $Matches[1]; Probability = 0; Dependencies = 'corridor' }
+        }
+        elseif ($currentItem -and $line -match '^\s*probability:\s*(\d+)\s*(?:#.*)?$') {
+            $probabilityValue = [int]$Matches[1]
+            if ($probabilityValue -gt 100) {
+                throw "Ungueltige probability fuer '$($currentItem.Type)' in Level $($current.Level) (${Path}): Erlaubt sind 0-100."
+            }
+            $currentItem.Probability = $probabilityValue
+        }
+        elseif ($currentItem -and $line -match '^\s*dependencies:\s*(.*)$') {
+            $currentItem.Dependencies = ConvertFrom-YamlScalar $Matches[1]
+        }
     }
+    if ($currentItem -and $current) { $current.Furniture += $currentItem }
     if ($current) { $levels += $current }
 
-    $match = $levels | Where-Object { $_.Level -eq $Level }
-    if (-not $match) {
-        $available = ($levels | ForEach-Object { $_.Level }) -join ', '
-        throw "Level $Level nicht in $Path gefunden ($($levels.Count) Level geladen). Verfuegbare Level: $available"
+    if ($levels.Count -eq 0) {
+        throw "Kein Level in $Path gefunden."
     }
 
-    $match
+    $levels
 }
 
 # Level laesst sich zusaetzlich per Umgebungsvariable steuern (Docker),
 # ohne dass jemand das Skript mit -Level aufrufen muss. Ein explizit
-# uebergebener -Level-Parameter hat trotzdem Vorrang.
-if (-not $PSBoundParameters.ContainsKey('Level') -and $env:MAZE_LEVEL) {
+# uebergebener -Level-Parameter (oder MAZE_LEVEL) erzeugt nur dieses eine
+# Level. Ohne beides werden ALLE Level aus config.yml erzeugt - jedes in
+# seine eigene Datei.
+$explicitLevel = $PSBoundParameters.ContainsKey('Level')
+if (-not $explicitLevel -and $env:MAZE_LEVEL) {
     $Level = [int]$env:MAZE_LEVEL
+    $explicitLevel = $true
 }
 
 $configPath = Join-Path $PSScriptRoot 'config.yml'
-$levelConfig = Read-MazeLevelConfig -Path $configPath -Level $Level
+$allLevelConfigs = Read-MazeLevelConfigs -Path $configPath
 
-# Ein explizites -Seed (auch -1) hat Vorrang vor der Level-Konfiguration.
-if (-not $PSBoundParameters.ContainsKey('Seed')) {
-    $Seed = $levelConfig.Seed
+if ($explicitLevel) {
+    $levelConfigs = @($allLevelConfigs | Where-Object { $_.Level -eq $Level })
+    if ($levelConfigs.Count -eq 0) {
+        $available = ($allLevelConfigs | ForEach-Object { $_.Level }) -join ', '
+        throw "Level $Level nicht in $configPath gefunden. Verfuegbare Level: $available"
+    }
+} else {
+    $levelConfigs = $allLevelConfigs
 }
 
-if ($Seed -ge 0) {
-    Get-Random -SetSeed $Seed | Out-Null
-}
-
-$maze = [Maze]::new($levelConfig.Width, $levelConfig.Height)
-Set-EdgeEntranceAndExit -Maze $maze
-$rows = ConvertTo-TileRows -Maze $maze
-
-# Nur eine Log-Anzeige - falls das aus irgendeinem Grund schiefgeht, soll
-# das niemals die eigentliche Kartenerzeugung unten verhindern.
-try {
-    Write-MazeDebugView -Maze $maze
-} catch {
-    Write-Warning "ASCII-Vorschau fehlgeschlagen (kein Problem fuer die Karte selbst): $($_.Exception.Message)"
-}
-
-$outputPath = if ($env:MAP_OUTPUT_PATH) { $env:MAP_OUTPUT_PATH } else { Join-Path $PSScriptRoot 'map.json' }
-$outputDir = Split-Path -Parent $outputPath
+$baseOutputPath = if ($env:MAP_OUTPUT_PATH) { $env:MAP_OUTPUT_PATH } else { Join-Path $PSScriptRoot 'map.json' }
+$outputDir = Split-Path -Parent $baseOutputPath
 if ($outputDir -and -not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-$payload = [ordered]@{
-    level       = $Level
-    width       = $rows[0].Length
-    height      = $rows.Count
-    # @(...) erzwingt Object[] statt String[]: ConvertTo-Json in Windows
-    # PowerShell 5.1 serialisiert ein System.String[] sonst fehlerhaft als
-    # {value:[...], Count:N} statt als normales JSON-Array.
-    rows        = @($rows)
-    generatedAt = (Get-Date).ToString('o')
+# Bei genau einem zu erzeugenden Level bleibt der Dateiname wie bisher
+# (z. B. "map.json"), damit bestehende Aufrufer sich nicht aendern muessen.
+# Werden mehrere Level erzeugt, bekommt jedes seine eigene Datei
+# ("map-1.json", "map-2.json", ...).
+$writeSingleFile = $levelConfigs.Count -eq 1
+$baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseOutputPath)
+$extension = [System.IO.Path]::GetExtension($baseOutputPath)
+
+foreach ($levelConfig in $levelConfigs) {
+    # Ein explizites -Seed (auch -1) hat Vorrang vor der Level-Konfiguration.
+    $currentSeed = if ($PSBoundParameters.ContainsKey('Seed')) { $Seed } else { $levelConfig.Seed }
+    if ($currentSeed -ge 0) {
+        Get-Random -SetSeed $currentSeed | Out-Null
+    }
+
+    $tier = Get-MazeResolutionTier -Complex $levelConfig.Complex
+    $effectiveWidth = $levelConfig.Width * $tier.Scale
+    $effectiveHeight = $levelConfig.Height * $tier.Scale
+
+    $maze = [Maze]::new($effectiveWidth, $effectiveHeight, $levelConfig.Complex)
+    Set-EdgeEntranceAndExit -Maze $maze
+    $rows = ConvertTo-TileRows -Maze $maze
+
+    # Nur eine Log-Anzeige - falls das aus irgendeinem Grund schiefgeht, soll
+    # das niemals die eigentliche Kartenerzeugung unten verhindern.
+    try {
+        Write-MazeDebugView -Maze $maze
+    } catch {
+        Write-Warning "ASCII-Vorschau fehlgeschlagen (kein Problem fuer die Karte selbst): $($_.Exception.Message)"
+    }
+
+    $outputPath = if ($writeSingleFile) {
+        $baseOutputPath
+    } elseif ($outputDir) {
+        Join-Path $outputDir "$baseName-$($levelConfig.Level)$extension"
+    } else {
+        "$baseName-$($levelConfig.Level)$extension"
+    }
+
+    $payload = [ordered]@{
+        level       = $levelConfig.Level
+        name        = $levelConfig.Name
+        width       = $rows[0].Length
+        height      = $rows.Count
+        cellSize    = $tier.CellSizePx
+        # @(...) erzwingt Object[] statt String[]/nichts bei leerer Liste:
+        # ConvertTo-Json in Windows PowerShell 5.1 serialisiert ein
+        # System.String[] sonst fehlerhaft als {value:[...], Count:N} statt als
+        # normales JSON-Array, und eine leere Furniture-Liste wuerde ohne @(...)
+        # zu $null statt [] werden.
+        rows        = @($rows)
+        colorScheme = [ordered]@{ wand = $levelConfig.ColorScheme.Wand; floorr = $levelConfig.ColorScheme.Floorr }
+        furniture   = @($levelConfig.Furniture | ForEach-Object {
+            [ordered]@{ type = $_.Type; probability = $_.Probability; dependencies = $_.Dependencies }
+        })
+        generatedAt = (Get-Date).ToString('o')
+    }
+
+    # Erst in eine temporaere Datei schreiben und dann umbenennen, damit der
+    # Browser-Container nie eine halb geschriebene Datei zu lesen bekommt.
+    # Per .NET statt "Set-Content -Encoding utf8" geschrieben, weil Windows
+    # PowerShell 5.1 sonst ein UTF-8-BOM voranstellen wuerde, an dem PHPs
+    # json_decode() scheitert.
+    $tempPath = "$outputPath.tmp"
+    $json = $payload | ConvertTo-Json -Depth 5
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
+    Move-Item -Path $tempPath -Destination $outputPath -Force
+
+    Write-Host "Karte generiert: $outputPath (Level $($levelConfig.Level), $($payload.width)x$($payload.height), Seed $currentSeed, Complex $($levelConfig.Complex), CellSize $($tier.CellSizePx))"
 }
-
-# Erst in eine temporaere Datei schreiben und dann umbenennen, damit der
-# Browser-Container nie eine halb geschriebene Datei zu lesen bekommt.
-# Per .NET statt "Set-Content -Encoding utf8" geschrieben, weil Windows
-# PowerShell 5.1 sonst ein UTF-8-BOM voranstellen wuerde, an dem PHPs
-# json_decode() scheitert.
-$tempPath = "$outputPath.tmp"
-$json = $payload | ConvertTo-Json -Depth 3
-$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-[System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
-Move-Item -Path $tempPath -Destination $outputPath -Force
-
-Write-Host "Karte generiert: $outputPath (Level $Level, $($payload.width)x$($payload.height), Seed $Seed)"
