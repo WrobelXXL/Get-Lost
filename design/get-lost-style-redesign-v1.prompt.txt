@@ -1,0 +1,20 @@
+Generated with the built-in image_gen tool.
+Reference 1: codex-clipboard-b96427b8-6084-4545-85f7-46a2978dea1b.png (style only).
+Reference 2: codex-clipboard-3eaa954c-a274-4aab-a8a6-2f9dddc96f77.png (edit target and geometry).
+
+Use case: style-transfer edit.
+Edit target: INPUT IMAGE 2, the wide landscape screenshot of the existing Get Lost maze.
+Style reference only: INPUT IMAGE 1, the narrow portrait dungeon screenshot. DO NOT edit image 1 and DO NOT copy its level layout, silhouette, player, bridge, or composition.
+
+Produce a finished redesigned version of IMAGE 2, preserving its exact landscape framing, aspect ratio, maze topology, positions and lengths of walls, openings, corridor widths, wall endpoints, visible crop, torch positions and pottery positions. Geometry and composition come exclusively from IMAGE 2. No new corridors, walls, doorways or characters. The output should convincingly look hand-pixelled by the same artist using the same materials and tileset as IMAGE 1.
+
+Most important correction: completely REMOVE every dark dirt/rubble/noisy terrain strip currently surrounding and underneath the maze walls of IMAGE 2. Replace ALL those strips inside the dungeon with the SAME warm, muted, earthy brown square stone paving as the rest of the walkable floor. This is an explicit override even where image 1 has some darker floor wear. Absolutely no separate dark perimeter material, black rubble field, dirt halo, moss, fuzzy borders or shadow carpets. Extend coherent grout-aligned tiles cleanly and naturally right to the actual wall faces and trim. Only a small deliberate 1–2 pixel contact shadow is allowed directly touching a wall. Outside the outer dungeon wall preserve the nearly black negative space from IMAGE 2.
+
+Rebuild the actual surfaces, do not merely recolor the screenshot. Floor: warm earthy brown square slabs matching IMAGE 1, clearly readable dark grout, restrained slight tile-to-tile color differences, occasional inset square or rectangular details, very sparse intentional little cracks and chips. Broad areas must be calm and coherent. Use few deliberately shaped pixel clusters instead of any procedural random texture or noise. Remove excessive ornament density; ordinary square slabs should dominate. The center floor and floor by walls are the identical material.
+
+Walls: replace IMAGE 2's existing repetitive, mechanically beveled brick texture entirely. Use IMAGE 1's solid burgundy/dark red and muted brown-red brick faces, dark joints, broad readable brick clusters, warm burnt orange/copper top and side trim, tiny selected highlights and deliberate shadow pixels. Walls must feel solid and rooted directly into the tiled floor. No dirt-like underlayer. Preserve exactly the same wall locations, direction changes and lengths.
+At EVERY exposed corner, including outer corners, inner turns, wall endings and protruding ends, use compact stepped pixel curves like IMAGE 1. Slightly round the corners using a few deliberately placed square pixel steps while retaining the same underlying maze geometry. No crisp vector-like unstepped right-angle rail ends.
+
+Pixel language: match IMAGE 1's apparent pixel size, cluster density, color count and crispness. Keep hard pixel edges and intentional blocky shapes. No antialiasing, resampling blur, smoothing, vector art, 3D rendering, digital painting, realistic texture, high-resolution noise, organic brush strokes, glossy bevels or new dominant colors.
+Lighting: reference-like restraint. Small warm orange torch highlights only; no broad smooth orange gradients, bloom or excessively bright halos. Compact pixel-defined shadows. Keep the reference's subdued earthy floors, brown shadows, burgundy walls and copper trim.
+Keep existing pottery and torches integrated in that exact pixel style and their existing locations. No text, labels, frames, legend, watermark, or side-by-side comparison. Return only the redesigned wide IMAGE 2.

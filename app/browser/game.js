@@ -17,6 +17,15 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;
 
+function alignCanvas() {
+    // Preserve safe centering, but avoid half-pixel origins in odd viewports.
+    // A native art pixel must occupy exactly one complete CSS pixel.
+    canvas.style.left = canvas.style.top = '0px';
+    const rect = canvas.getBoundingClientRect();
+    canvas.style.left = `${Math.round(rect.left) - rect.left}px`;
+    canvas.style.top = `${Math.round(rect.top) - rect.top}px`;
+}
+
 function visibleArea() {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -46,8 +55,12 @@ function syncAnimation() {
 
 document.addEventListener('visibilitychange', syncAnimation);
 reducedMotion.addEventListener('change', syncAnimation);
-window.addEventListener('resize', () => scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea()), { passive: true });
+window.addEventListener('resize', () => {
+    alignCanvas();
+    scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+}, { passive: true });
 window.addEventListener('scroll', () => scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea()), { passive: true });
 window.addEventListener('pagehide', () => cancelAnimationFrame(animation));
 window.addEventListener('pageshow', syncAnimation);
+alignCanvas();
 syncAnimation();
