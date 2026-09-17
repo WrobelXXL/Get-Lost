@@ -1,5 +1,7 @@
 Labyrinth Game
 
+![Thumbnail](public/thumbnail.png)
+
 Name: Get-Lost
 Mindestalter: 21-99
 
@@ -72,9 +74,9 @@ Andere Spieler können dann beitreten indem die auf "Im LAN suchen" klicken
 
 Die Maps sind unter den Links erreichbar:
 
-http://localhost:8080/?level=1
-http://localhost:8080/?level=2
-http://localhost:8080/?level=3
+http://localhost:8080/?level=1  
+http://localhost:8080/?level=2  
+http://localhost:8080/?level=3  
 usw...
 
 ### Mechanics
