@@ -1,7 +1,9 @@
 # Get-Lost - GUI / Browser
 
 Dieser Ordner enthält die Web-GUI des Spiels: eine PHP-Seite, die eine
-Labyrinth-Karte als Pixel-Art auf einem `<canvas>` zeichnet. Läuft im
+Labyrinth-Karte als Pixel-Art auf einem `<canvas>` zeichnet: durchgehendes
+erdiges Quadratpflaster, schmale kupferfarbene Wandkronen, dunkle
+Ziegelfronten und dezentes Fackellicht nach der aktuellen Bildreferenz. Läuft im
 Docker-Container (Alpine + PHP) und ist danach von jedem Gerät im
 Netzwerk aus per Browser erreichbar, siehe [Starten](#starten) weiter
 unten.
@@ -21,12 +23,14 @@ still irgendeine Ersatz-Karte anzuzeigen.
 | Datei | Zweck |
 |---|---|
 | [index.php](index.php) | Einstiegspunkt. Liest die generierte Karte (JSON, siehe `MAP_INPUT_PATH`) ein und reicht sie als JSON an JavaScript weiter. Fehlt die Karte, liefert es einen 503-Fehler statt einer Seite. |
-| [tileset.js](tileset.js) | Erzeugt und speichert Boden-, Schutt- und Ornamentvarianten; exportiert `TILE_SIZE`, `CELL_SIZE`, `PALETTE`, `hash()` und `createTileset()`. Keine Bilddateien nötig. |
-| [dungeonWall.js](dungeonWall.js) | Zeichnet die 32×32-Wandkachel (Ziegel-Design). Eigenständiges Modul, unverändert wie geliefert übernommen. |
+| [referenceArt.js](referenceArt.js) | Enthält aus der Bildreferenz erzeugte Farbpaletten und Pixelindizes. `referenceTextures()` decodiert und speichert die nativen Boden- und Wandtexturen. |
+| [tileset.js](tileset.js) | Kombiniert 30 Boden-Sprites aus der Referenz zu 128 gecachten Pflasterkacheln; exportiert `TILE_SIZE`, `CELL_SIZE`, `PALETTE`, `hash()` und `createTileset()`. |
+| [dungeonWall.js](dungeonWall.js) | `DungeonWall.makeMaterials()` liefert Referenztexturen für Ziegelfront (192×36) und Wandkrone (192×8). Die bisherigen 32px-Hilfsfunktionen bleiben für Einzelvorschauen verfügbar. |
 | [mapRenderer.js](mapRenderer.js) | Zeichnet Boden und Wände, platziert Dekorationen/Torpfosten und berechnet Lichtflächen. `renderMap()` liefert `{ lampCount, drawLights() }`. |
 | [decorations.js](decorations.js) | Erzeugt wiederverwendbare Pixel-Sprites für Gefäße, Schutt, Lüftungsgitter, Torpfosten-Säulen, Fackeln und Flammenbilder. |
-| [game.js](game.js) | Initialisiert Karte und Canvas und steuert die sichtbaren Lichtanimationen. |
+| [game.js](game.js) | Initialisiert Karte und Canvas, richtet den Canvas-Ursprung auf ganze CSS-Pixel aus und steuert die sichtbaren Lichtanimationen. |
 | [style.css](style.css) | Dunkles Seitenlayout: Karte mittig, solange sie in den Viewport passt, sonst vollständig scrollbar (`place-items: safe center`). |
+| [../../tools/build-reference-art.py](../../tools/build-reference-art.py) | Entwicklertool zum Erzeugen von `referenceArt.js` aus der Referenz-PNG; benötigt Python und Pillow. |
 | [../maze-gen/main.ps1](../maze-gen/main.ps1) | Erzeugt die zufällige Karte (nicht Teil dieses Ordners, aber die Gegenseite der Schnittstelle - siehe unten). |
 
 ## Wand-Optik vs. Hitbox
@@ -36,36 +40,64 @@ Koordinaten. Jedes `#` bezeichnet weiterhin eine vollständig gesperrte
 Zelle. Für die Darstellung reserviert `CELL_SIZE = 64` dagegen 64×64
 Canvas-Pixel pro Kartenzeichen, sodass breite Gänge entstehen.
 
-Die Wand selbst kommt aus [dungeonWall.js](dungeonWall.js)
-(`DungeonWall.makeTile()`): eine einzelne 32×32-Kachel, die `mapRenderer.js`
-2×2-fach pro 64×64-Zelle stempelt (`drawWallTiles()`) - ein
-eigenständiges, sich wiederholendes Ziegel-Design ohne
-Verbindungslogik zu Nachbarwänden (keine durchgehende Krone/Ecken wie in
-einer früheren Version). Für Kollision/Bewegung zählt weiterhin nur das
-Karten-Raster, nicht die Pixel-Optik - `buildWallMask()` markiert dafür
-das volle 64×64-Rechteck jeder Wandzelle als lichtblockierend.
+`mapRenderer.js` verbindet benachbarte Wandzellen zu einer durchgehenden,
+8 Pixel breiten Krone. `wallMask()` bildet diese Kontur samt abgestuften
+Rundungen an Ecken; dieselbe Maske dient der Lichtabschattung.
+`drawWalls()` projiziert eine 36 Pixel hohe Ziegelfront nach unten und
+füllt Krone und Front mit den Materialien aus `DungeonWall.makeMaterials()`.
+Die Texturen wiederholen sich entlang der verbundenen Wandfläche.
+Für Kollision und Bewegung zählt weiterhin die vollständige logische
+Wandzelle im Karten-Raster, unabhängig von ihrer sichtbaren Kontur.
 
 ## Boden, Details und Licht
 
-- `createTileset()` liefert gecachte Canvas-Kacheln: `floor[64]`,
-  `exterior[32]`, `ornament[16]`, `void`, `tileSize` und `cellSize`.
-  Eine native 32×32-Bodenkachel enthält vier 16×16-Fliesen mit dünnen
-  Fugen, Farbvarianten, Abnutzung und gelegentlichen Einfassungen.
-- Dunkler Schutt (aus `tileset.exterior`) bildet einen unregelmäßigen,
-  mottled Saum am Fuß jeder Wand (`drawGround()`); Ornamente liegen in
-  zusammenhängenden Teilflächen. `hash(x, y, salt)` hält die Varianten
-  deterministisch, ohne den Zufallszustand der Generierung zu beeinflussen.
+- `referenceArt.js` enthält 30 direkt aus der Referenz gewonnene
+  16×16-Boden-Sprites: ruhige Flächen, abgenutzte Kanten, Einfassungen
+  und einzelne Flecken. `createTileset()` kombiniert jeweils vier davon
+  zu 128 gecachten 32×32-Kacheln (`floor[128]`) und liefert zusätzlich
+  `void`, `tileSize` und `cellSize`.
+  Vier dieser Texturen füllen eine 64×64-Darstellungszelle pixelgenau aus.
+- Das gleiche braune Pflaster reicht bis an die Wandkontur.
+  `hash(x, y, salt)` wählt ganze Referenzfliesen deterministisch;
+  Flecken erscheinen seltener als die übrigen Varianten.
+  Der Renderer verwendet überall `floor`. `worn[64]`, `exterior[64]`
+  und `ornament[16]` bleiben Kompatibilitätszugriffe auf Teile desselben
+  Pflasters und erzeugen keinen eigenen Randstreifen.
 - `decorations.js` liefert die Sprites, `mapRenderer.js` platziert sie an
   passenden Wänden/Ecken. Gefäße und Schutt bleiben rein dekorativ;
-  markierte `P`-/`A`-/`K`-Zellen erhalten keine Bodenobjekte, aber je
-  zwei Torpfosten-Säulen an ihrer Außenöffnung (`placeGate()`).
+  markierte `P`-/`A`-/`K`-Zellen erhalten keine Bodenobjekte.
+  Die Außenöffnungen bei `P` und `A` erhalten jeweils zwei
+  Torpfosten-Säulen (`placeGate()`).
 - Warme Lichtflächen werden beim ersten Erreichen des sichtbaren Bereichs
-  berechnet, danach gecacht. Nur sichtbare Lichtausschnitte und Flammen
+  berechnet, danach gecacht. Sie nutzen einen Radius von 58 Pixeln,
+  acht diskrete Helligkeitsstufen und die sichtbare Wandkontur zur
+  Abschattung. Nur sichtbare Lichtausschnitte und Flammen
   werden mit höchstens 10 Bildern pro Sekunde neu gezeichnet. Bei
   `prefers-reduced-motion` bleibt das Licht statisch; in einem
   versteckten Tab pausiert die Animation.
 - Der Canvas wird ohne CSS-Verkleinerung (1:1) und mit deaktivierter
-  Bildglättung dargestellt.
+  Bildglättung dargestellt. Die sichere Zentrierung bleibt erhalten;
+  `alignCanvas()` korrigiert beim Start und bei Größenänderungen mögliche
+  halbe CSS-Pixel am Canvas-Ursprung auf ganze Pixel.
+
+### Referenztexturen neu erzeugen
+
+Die Paletten und Pixelindizes sind in `referenceArt.js` eingebettet.
+Der Browser benötigt weder zusätzliche Bildladevorgänge noch Python,
+Pillow oder die ursprüngliche Referenzdatei.
+
+Nur zum erneuten Erzeugen der Daten werden Python mit Pillow und die
+passende Referenz-PNG mit **1897×829 Pixeln** benötigt. Vom
+Repository-Hauptverzeichnis aus:
+
+```powershell
+python tools/build-reference-art.py "Pfad/zur/Referenz.png"
+```
+
+Das Werkzeug verwendet festgelegte Bildausschnitte, reduziert sie ohne
+Glättung oder Dithering auf ihre native Pixelgröße und schreibt
+`app/browser/referenceArt.js`. Bei einer anderen Vorlage müssen die
+Ausschnitte im Entwicklertool angepasst werden.
 
 ## Das Karten-Format
 
@@ -147,11 +179,14 @@ Ansatzpunkte:
    `main.ps1` wählt per `-Level` (Standard: `1`) bzw. der
    Umgebungsvariable `MAZE_LEVEL` den passenden Eintrag aus.
 
-5. **Wand-/Boden-Design ändern:** Die Wandkachel steckt komplett in
-   [dungeonWall.js](dungeonWall.js) (`drawTilePixels()`, Farbpalette
-   `C`) - dort anpassen oder ersetzen, `mapRenderer.js` muss dafür nicht
-   verändert werden. Bodenvarianten gehören in [tileset.js](tileset.js),
-   dekorative Sprites in [decorations.js](decorations.js).
+5. **Wand-/Boden-Design ändern:** Die Referenztexturen werden mit
+   [build-reference-art.py](../../tools/build-reference-art.py) erzeugt
+   (siehe oben). [dungeonWall.js](dungeonWall.js) stellt die Wandmaterialien
+   bereit; Kontur, Verbindungen und Projektion liegen in
+   [mapRenderer.js](mapRenderer.js) (`wallMask()`, `drawWalls()`).
+   Auswahl und Kombination der Bodenvarianten gehören in
+   [tileset.js](tileset.js), dekorative Sprites in
+   [decorations.js](decorations.js).
 
 ## Die Schnittstelle Map-Generierung ↔ Browser
 

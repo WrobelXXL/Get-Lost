@@ -27,6 +27,7 @@ body {
 
 canvas#map {
     display: block;
+    position: relative;
     image-rendering: crisp-edges;
     image-rendering: pixelated;
 }
