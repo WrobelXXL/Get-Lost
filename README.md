@@ -43,3 +43,21 @@ Get-Lost
 ```
 
 *ai - der größte Teil wurde mithilfe von AI erstellt. Der Code wurde von uns überprüft. Dies war notwendigt um eine vernünftige GUI zu haben.
+
+### Wie Installiere ich das Game?
+
+```
+curl -fsSL https://raw.githubusercontent.com/WrobelXXL/Get-Lost/main/install.sh | bash
+```
+
+### Wie startet sich das Spiel?
+
+Hier muss noch was praktisches ausgedacht werden...
+
+Bisher:
+```
+cd Get-Lost
+docker compose up --build
+```
+
+Verfügbar unter [http://localhost:8080](http://localhost:8080)
