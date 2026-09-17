@@ -105,8 +105,6 @@ $decor = ['colorScheme' => $colorScheme, 'furniture' => $furniture, 'cellSize' =
     <canvas id="map"></canvas>
 
     <script>
-        // Karte kommt aus PHP, gezeichnet wird sie rein in JavaScript
-        // (siehe game.js / mapRenderer.js).
         window.__MAP__ = <?= json_encode($map, JSON_THROW_ON_ERROR) ?>;
         window.__DECOR__ = <?= json_encode($decor, JSON_THROW_ON_ERROR) ?>;
     </script>

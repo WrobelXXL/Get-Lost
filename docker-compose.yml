@@ -6,8 +6,6 @@ services:
     volumes:
       - map-data:/data
     environment:
-      # Ohne MAZE_LEVEL werden alle Level aus app/maze-gen/config.yml erzeugt,
-      # jedes in eine eigene Datei (map-1.json, map-2.json, ...).
       MAP_OUTPUT_PATH: /data/map.json
     restart: "no"
 
@@ -21,14 +19,8 @@ services:
     volumes:
       - map-data:/data:ro
     environment:
-      # maze-gen erzeugt eine Datei pro Level (map-1.json, map-2.json, ...)
-      # in diesem Ordner. Welches Level angezeigt wird, waehlt man im
-      # Browser per "?level=" (z. B. "http://localhost:8080/?level=2"),
-      # ohne Angabe ist es Level 1.
       MAP_DATA_DIR: /data
     ports:
-      # links: Port auf dem Host, rechts: Port im Container (fest auf 80).
-      # Bei Bedarf links auf einen anderen freien Port aendern.
       - "8080:80"
     restart: unless-stopped
 
