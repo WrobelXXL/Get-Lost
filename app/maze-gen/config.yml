@@ -1,12 +1,87 @@
-# seed: -1 erzeugt eine zufaellige Karte; 0..2147483647 einen festen Verlauf.
-# Ein explizites -Seed beim Skriptaufruf ueberschreibt den Wert des Levels.
 maze_level:
   - level: 1
-    width: 10
-    height: 10
-    seed: -1
+    gen:
+      name: "Level 1"
+      width: 10
+      height: 10
+      seed: -1
+      complex: 10
+    render:
+      colo_schema:
+        wand: "#b9692c"
+        floorr: "#73533b"
+      funiture:
+        - type: "lamp"
+          probability: 60
+          dependencies: "border"
+        - type: "back"
+          probability: 20
+        - type: "table"
+          probability: 15
+          dependencies: "border"
+        - type: "sofa"
+          probability: 8
+        - type: "pot"
+          probability: 25
+        - type: "grate"
+          probability: 10
+        - type: "debris"
+          probability: 15
 
   - level: 2
-    width: 15
-    height: 15
-    seed: -1
+    gen:
+      name: "Level 2"
+      width: 12
+      height: 4
+      seed: -1
+      complex: 20
+    render:
+      colo_schema:
+        wand: "#445588"
+        floorr: "#445588"
+      funiture:
+        - type: "lamp"
+          probability: 60
+          dependencies: "border"
+        - type: "back"
+          probability: 20
+        - type: "table"
+          probability: 15
+          dependencies: "border"
+        - type: "sofa"
+          probability: 8
+        - type: "pot"
+          probability: 25
+        - type: "grate"
+          probability: 10
+        - type: "debris"
+          probability: 15
+
+  - level: 3
+    gen:
+      name: "Level 3"
+      width: 14
+      height: 14
+      seed: -1
+      complex: 40
+    render:
+      colo_schema:
+        wand: "#5b3a72"
+        floorr: "#4a3861"
+      funiture:
+        - type: "lamp"
+          probability: 60
+          dependencies: "border"
+        - type: "back"
+          probability: 20
+        - type: "table"
+          probability: 15
+          dependencies: "border"
+        - type: "sofa"
+          probability: 8
+        - type: "pot"
+          probability: 25
+        - type: "grate"
+          probability: 10
+        - type: "debris"
+          probability: 15

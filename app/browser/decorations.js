@@ -225,6 +225,101 @@ function pillarSprite() {
     return result;
 }
 
+function sackSprite() {
+    // Slumped burlap sack ("back" in config.yml) - tied neck, bulging body.
+    const w = 18, h = 20;
+    const result = canvas(w, h);
+    const ctx = result.getContext('2d');
+    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
+    const outline = '#2c2419', dark = '#4a3c26', mid = '#6b5738', light = '#8a7350', hi = '#a68d63', tie = '#1f1911';
+
+    rect(tie, 6, 0, 6, 1);
+    rect(outline, 5, 1, 8, 2);
+    rect(dark, 6, 2, 6, 1);
+    rect(outline, 3, 3, 12, 2);
+    rect(mid, 4, 3, 10, 2);
+    rect(outline, 2, 5, 14, 3);
+    rect(mid, 3, 5, 12, 3);
+    rect(light, 4, 5, 4, 2);
+    rect(outline, 1, 8, 16, 5);
+    rect(dark, 2, 8, 14, 5);
+    rect(mid, 3, 8, 6, 3);
+    rect(hi, 4, 9, 3, 1);
+    rect(outline, 1, 13, 16, 5);
+    rect(dark, 2, 13, 14, 5);
+    rect(mid, 9, 14, 6, 3);
+    rect(outline, 2, 18, 14, 2);
+    rect(dark, 3, 18, 12, 1);
+    return result;
+}
+
+function tableSprite() {
+    const w = 34, h = 26;
+    const result = canvas(w, h);
+    const ctx = result.getContext('2d');
+    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
+    const outline = '#241a12', wood = '#5a3d24', woodLight = '#7a5433', woodHi = '#9c7040', apron = '#3a2717', leg = '#1e150e';
+
+    rect(outline, 2, 0, 30, 2);
+    rect(outline, 0, 2, 34, 12);
+    rect(wood, 3, 1, 28, 12);
+    rect(woodLight, 3, 1, 28, 3);
+    rect(woodHi, 4, 1, 26, 1);
+    rect(outline, 3, 5, 28, 1);
+    rect(outline, 3, 9, 28, 1);
+    rect(outline, 2, 13, 30, 5);
+    rect(apron, 3, 14, 28, 3);
+    rect(leg, 4, 17, 3, 9);
+    rect(leg, 27, 17, 3, 9);
+    rect(outline, 3, 25, 5, 1);
+    rect(outline, 26, 25, 5, 1);
+    return result;
+}
+
+function sofaSprite() {
+    // Rounded, protruding armrests on visible feet (not flush with the seat)
+    // and a two-tone cushion top/front are what keep this reading as a soft
+    // couch rather than a hard chest.
+    const w = 38, h = 28;
+    const result = canvas(w, h);
+    const ctx = result.getContext('2d');
+    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
+    const outline = '#241512', frame = '#3a2119', wood = '#5a3d24', woodHi = '#7a5433';
+    const fabric = '#5c2c28', fabricTop = '#7a3f38', fabricHi = '#9b544a', shade = '#3f211d';
+
+    // Backrest, rounded top.
+    rect(outline, 4, 0, 30, 2);
+    rect(fabric, 5, 1, 28, 1);
+    rect(outline, 2, 2, 34, 7);
+    rect(fabric, 3, 3, 32, 5);
+    rect(fabricTop, 3, 3, 32, 2);
+
+    // Rounded armrests, bulging past the seat, on their own wooden feet.
+    rect(outline, 0, 5, 7, 17);
+    rect(wood, 1, 6, 5, 15);
+    rect(woodHi, 1, 6, 5, 3);
+    rect(outline, 31, 5, 7, 17);
+    rect(wood, 32, 6, 5, 15);
+    rect(woodHi, 32, 6, 5, 3);
+
+    // Seat: two soft cushions (top face + shaded front) between the arms.
+    rect(outline, 6, 9, 26, 13);
+    rect(fabric, 7, 10, 11, 11);
+    rect(fabric, 20, 10, 11, 11);
+    rect(fabricHi, 8, 11, 6, 4);
+    rect(fabricHi, 21, 11, 6, 4);
+    rect(shade, 7, 18, 11, 3);
+    rect(shade, 20, 18, 11, 3);
+    rect(frame, 17, 10, 2, 11);
+
+    // Little wooden feet, peeking out below the arms.
+    rect(outline, 3, 22, 3, 5);
+    rect(wood, 3, 22, 2, 4);
+    rect(outline, 32, 22, 3, 5);
+    rect(wood, 32, 22, 2, 4);
+    return result;
+}
+
 function flameSprites() {
     const palette = {
         d: '#752c25', r: '#af3523', o: '#d54b24',
@@ -259,5 +354,9 @@ export function createDecorations() {
         pillar: pillarSprite(),
         torch: torchSprite(),
         flames: flameSprites(),
+        // Config-driven funiture (config.yml); keys match its "type" values.
+        back: sackSprite(),
+        table: tableSprite(),
+        sofa: sofaSprite(),
     };
 }

@@ -61,3 +61,22 @@ docker compose up --build
 ```
 
 Verfügbar unter [http://localhost:8080](http://localhost:8080)
+
+
+### Wie soll Multiplayer funktionieren?
+Man kann über ein Knopf ein Game Starten "Im LAN"
+Andere Spieler können dann beitreten indem die auf "Im LAN suchen" klicken
+
+
+### Maps
+
+Die Maps sind unter den Links erreichbar:
+
+http://localhost:8080/?level=1
+http://localhost:8080/?level=2
+http://localhost:8080/?level=3
+usw...
+
+### Mechanics
+
+Fehlen noch
