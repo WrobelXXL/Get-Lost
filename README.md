@@ -1,9 +1,10 @@
-Labyrinth Game
+# Labyrinth Game
+WPU Powershell
 
 ![Thumbnail](public/thumbnail.png)
 
-Name: Get-Lost
-Mindestalter: 21-99
+Name: Get-Lost  
+Mindestalter: 21-99  
 
 Basis:
 - Bewegung
