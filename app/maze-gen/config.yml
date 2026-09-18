@@ -6,6 +6,7 @@ maze_level:
       height: 10
       seed: -1
       complex: 10
+      coins: 5
     render:
       colo_schema:
         wand: "#b9692c"
@@ -35,6 +36,7 @@ maze_level:
       height: 4
       seed: -1
       complex: 20
+      coins: 3
     render:
       colo_schema:
         wand: "#445588"
@@ -64,6 +66,7 @@ maze_level:
       height: 14
       seed: -1
       complex: 40
+      coins: 8
     render:
       colo_schema:
         wand: "#5b3a72"

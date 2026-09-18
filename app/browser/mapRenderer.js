@@ -2,6 +2,26 @@
 import { PALETTE, hash, CELL_SIZE } from './tileset.js';
 import { createDecorations } from './decorations.js';
 import { DungeonWall } from './dungeonWall.js';
+import { loadCoinFrames } from './coins.js';
+
+// Coin spin ("C" marks from main.ps1's ConvertTo-TileRows): native sprite
+// size (coin-N.png is 32x32), a brisk per-frame duration for the rotation
+// through all 9 frames, and a small, quick up/down bob layered on top.
+// COIN_SQUASH/COIN_SHADOW give it weight instead of just sliding a flat
+// sprite up and down - a soft contact shadow that shrinks as the coin
+// rises, and a squash/stretch tied to the same bob phase (classic 2D-game
+// "juice", not just a raw sine offset).
+const COIN_SIZE = 32;
+const COIN_SPIN_MS = 85;
+const COIN_BOB_PX = 4;
+const COIN_BOB_MS = 900;
+const COIN_SQUASH = 0.12;
+const COIN_SHADOW_ALPHA = 0.35;
+
+/** Eases the crossfade between two rotation frames instead of a hard cut. */
+function smoothstep(t) {
+    return t * t * (3 - 2 * t);
+}
 
 // Wall-cap geometry, hand-tuned in pixels for a 64px (CELL_SIZE) cell.
 // High-complexity levels render at half that (see tileset.js's cellSize
@@ -316,6 +336,26 @@ function findGate(map, mark) {
     return null;
 }
 
+// Every "C" cell (a coin, placed by main.ps1's Maze.PlaceObjects) becomes one
+// spinning, bobbing sprite anchored at its cell centre.
+function findCoins(map, t) {
+    const coins = [];
+    for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+            if (map[y][x] !== 'C') continue;
+            coins.push({
+                x: x * t + t / 2,
+                y: y * t + t / 2,
+                // Independent, stable per-coin offsets so a level with several
+                // coins doesn't have them all spin/bob in lockstep.
+                frameOffset: hash(x, y, 5231),
+                bobPhase: (hash(x, y, 7591) % 1000) / 1000 * Math.PI * 2,
+            });
+        }
+    }
+    return coins;
+}
+
 function placeGate(ctx, map, t, sprites, mark) {
     const gate = findGate(map, mark);
     if (!gate) return;
@@ -384,6 +424,8 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     const lamps = placeDetails(ctx, map, tileset.cellSize, sprites, furniture);
     placeGate(ctx, map, tileset.cellSize, sprites, 'P');
     placeGate(ctx, map, tileset.cellSize, sprites, 'A');
+    const coins = findCoins(map, tileset.cellSize);
+    const coinFrames = loadCoinFrames();
     // Faint ambient dimming everywhere; lamp glow (drawLights) brightens its
     // own radius back up, so only corners without a nearby torch read darker.
     ctx.fillStyle = PALETTE.void;
@@ -393,8 +435,13 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     const base = canvas(width, height);
     base.getContext('2d', { willReadFrequently: true }).drawImage(ctx.canvas, 0, 0);
     const lights = lamps.map(lamp => ({ ...lamp, patch: null }));
+    // Never baked into "base" (same reasoning as the flame sprites above):
+    // only drawLights() paints a coin, so restoring its patch from "base"
+    // always uncovers plain, coin-free floor underneath the previous frame.
+    const coinRadius = COIN_SIZE / 2 + COIN_BOB_PX + 2;
     return {
         lampCount: lamps.length,
+        coinCount: coins.length,
         drawLights(time = 0, visible = { left: 0, top: 0, right: width, bottom: height }) {
             // Restore intersecting patches before drawing overlapping lights.
             const active = lights.filter(p => p.x - LIGHT_RADIUS < visible.right && p.y - LIGHT_RADIUS < visible.bottom && p.x + LIGHT_RADIUS > visible.left && p.y + LIGHT_RADIUS > visible.top);
@@ -410,6 +457,51 @@ export function renderMap(ctx, map, tileset, decor = {}) {
             for (const lamp of active) {
                 const frame = sprites.flames[(Math.floor(time / 190) + lamp.phase) % sprites.flames.length];
                 ctx.drawImage(frame, lamp.x - Math.floor(frame.width / 2), lamp.y - 5);
+            }
+
+            const activeCoins = coins.filter(c => c.x - coinRadius < visible.right && c.y - coinRadius < visible.bottom && c.x + coinRadius > visible.left && c.y + coinRadius > visible.top);
+            for (const coin of activeCoins) {
+                const px = Math.round(coin.x - coinRadius), py = Math.round(coin.y - coinRadius), size = coinRadius * 2;
+                ctx.drawImage(base, px, py, size, size, px, py, size, size);
+            }
+            for (const coin of activeCoins) {
+                const rawIndex = time / COIN_SPIN_MS + coin.frameOffset;
+                const index = Math.floor(rawIndex);
+                const frameA = coinFrames[((index % coinFrames.length) + coinFrames.length) % coinFrames.length];
+                const frameB = coinFrames[(((index + 1) % coinFrames.length) + coinFrames.length) % coinFrames.length];
+                if (!frameA.complete || !frameA.naturalWidth) continue;
+                const blend = smoothstep(rawIndex - index);
+
+                const bobPhase = time / COIN_BOB_MS + coin.bobPhase;
+                const bob = Math.sin(bobPhase) * COIN_BOB_PX;
+                // Stretches tall on the way up, squashes flat at the bottom of
+                // the bob - the same weight cue a coin bounce would have.
+                const stretch = Math.cos(bobPhase);
+                const scaleY = 1 + stretch * COIN_SQUASH;
+                const scaleX = 1 - stretch * COIN_SQUASH * 0.6;
+
+                // Soft contact shadow on the floor, shrinking and fading as
+                // the coin rises off it - grounds the sprite instead of it
+                // reading as pasted flat over the tile.
+                const rise = (bob + COIN_BOB_PX) / (COIN_BOB_PX * 2);
+                const shadowScale = 1 - rise * 0.35;
+                ctx.save();
+                ctx.globalAlpha = COIN_SHADOW_ALPHA * (1 - rise * 0.6);
+                ctx.fillStyle = '#000000';
+                ctx.beginPath();
+                ctx.ellipse(coin.x, coin.y + COIN_SIZE / 2 - 2, (COIN_SIZE / 2.6) * shadowScale, (COIN_SIZE / 6) * shadowScale, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(Math.round(coin.x), Math.round(coin.y + bob));
+                ctx.scale(scaleX, scaleY);
+                ctx.drawImage(frameA, -COIN_SIZE / 2, -COIN_SIZE / 2);
+                if (blend > 0.01 && frameB.complete && frameB.naturalWidth) {
+                    ctx.globalAlpha = blend;
+                    ctx.drawImage(frameB, -COIN_SIZE / 2, -COIN_SIZE / 2);
+                }
+                ctx.restore();
             }
         },
     };
