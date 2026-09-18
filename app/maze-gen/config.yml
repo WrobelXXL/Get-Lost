@@ -15,18 +15,18 @@ maze_level:
           probability: 60
           dependencies: "border"
         - type: "back"
-          probability: 20
+          probability: 50
         - type: "table"
-          probability: 15
+          probability: 50
           dependencies: "border"
         - type: "sofa"
-          probability: 8
+          probability: 0
         - type: "pot"
-          probability: 25
+          probability: 50
         - type: "grate"
-          probability: 10
+          probability: 30
         - type: "debris"
-          probability: 15
+          probability: 40
 
   - level: 2
     gen:

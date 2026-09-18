@@ -21,7 +21,7 @@ services:
     environment:
       MAP_DATA_DIR: /data
     ports:
-      - "8080:80"
+      - "8686:80"
     restart: unless-stopped
 
 volumes:
