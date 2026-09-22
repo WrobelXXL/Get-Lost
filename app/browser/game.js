@@ -41,9 +41,13 @@ function visibleArea() {
     };
 }
 
+// 10 fps is sufficient for slow torch animation; the coin spin/bob reads as
+// too sluggish at that rate, so it gets a brisker interval of its own.
+// Hidden tabs do no work either way.
+const FRAME_INTERVAL_MS = scene.coinCount ? 50 : 100;
+
 function frame(time) {
-    // 10 fps is sufficient for slow torch animation; hidden tabs do no work.
-    if (time - lastFrame >= 100) {
+    if (time - lastFrame >= FRAME_INTERVAL_MS) {
         scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
         lastFrame = time;
     }
@@ -53,7 +57,7 @@ function frame(time) {
 function syncAnimation() {
     cancelAnimationFrame(animation);
     scene.drawLights(0, visibleArea());
-    if (!document.hidden && !reducedMotion.matches && scene.lampCount) {
+    if (!document.hidden && !reducedMotion.matches && (scene.lampCount || scene.coinCount)) {
         lastFrame = -Infinity;
         animation = requestAnimationFrame(frame);
     }

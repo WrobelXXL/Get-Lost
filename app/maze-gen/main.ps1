@@ -28,6 +28,7 @@ class Cell {
     [bool] $IsEntrance = $false
     [bool] $IsExit     = $false
     [bool] $IsKey      = $false
+    [bool] $IsCoin     = $false
     [bool] $HasPlayer  = $false
 
     Cell([int] $x, [int] $y) {
@@ -47,8 +48,9 @@ class Maze {
     [Cell] $Exit
     [Cell] $Key
     [Cell] $Player
+    [Cell[]] $Coins = @()
 
-    Maze([int] $width, [int] $height, [int] $complex) {
+    Maze([int] $width, [int] $height, [int] $complex, [int] $coinCount) {
         if ($width -lt 2) {
             throw "Maze width must be at least 2."
         }
@@ -61,7 +63,7 @@ class Maze {
 
         $this.CreateGrid()
         $this.GenerateMaze($complex)
-        $this.PlaceObjects()
+        $this.PlaceObjects($coinCount)
     }
 
     [void] CreateGrid() {
@@ -186,7 +188,7 @@ class Maze {
             $y = Get-Random -Minimum 0 -Maximum $this.Height
             $randomCell = $this.Grid[$x, $y]
 
-            if (-not $randomCell.IsEntrance -and -not $randomCell.IsExit -and -not $randomCell.IsKey) {
+            if (-not $randomCell.IsEntrance -and -not $randomCell.IsExit -and -not $randomCell.IsKey -and -not $randomCell.IsCoin) {
                 $found = $true
             }
         }
@@ -194,7 +196,7 @@ class Maze {
         return $randomCell
     }
 
-    [void] PlaceObjects() {
+    [void] PlaceObjects([int] $coinCount) {
         # Random Entrance
         $this.Entrance = $this.GetRandomEmptyCell()
         $this.Entrance.IsEntrance = $true
@@ -210,6 +212,21 @@ class Maze {
         # Random Key
         $this.Key = $this.GetRandomEmptyCell()
         $this.Key.IsKey = $true
+
+        # Random Coins - auf freien, leeren Zellen verteilt. Deckelt auf die
+        # Anzahl tatsaechlich freier Zellen, damit GetRandomEmptyCell() bei
+        # einer zu hoch konfigurierten Muenzanzahl nicht in eine Endlosschleife
+        # laeuft (z. B. sehr kleine Maze bei hohem "coins"-Wert in config.yml).
+        $maxCoins = ($this.Width * $this.Height) - 3
+        $effectiveCoinCount = [Math]::Max(0, [Math]::Min($coinCount, $maxCoins))
+
+        $coinList = [System.Collections.Generic.List[Cell]]::new()
+        for ($i = 0; $i -lt $effectiveCoinCount; $i++) {
+            $coinCell = $this.GetRandomEmptyCell()
+            $coinCell.IsCoin = $true
+            $coinList.Add($coinCell)
+        }
+        $this.Coins = $coinList.ToArray()
     }
 
     # --------------------------------------------------------
@@ -254,6 +271,8 @@ class Maze {
                     Write-Host " E " -ForegroundColor Green -NoNewline
                 } elseif ($cell.IsExit) {
                     Write-Host " A " -ForegroundColor Red -NoNewline
+                } elseif ($cell.IsCoin) {
+                    Write-Host " $([char]0x25CF) " -ForegroundColor DarkYellow -NoNewline
                 } else {
                     Write-Host "   " -NoNewline
                 }
@@ -322,6 +341,7 @@ function ConvertTo-TileRows {
             if ($cell.IsEntrance) { $mark = 'P' }
             elseif ($cell.IsExit) { $mark = 'A' }
             elseif ($cell.IsKey)  { $mark = 'K' }
+            elseif ($cell.IsCoin) { $mark = 'C' }
             $grid[$gy, $gx] = $mark
 
             $gyMinus1 = $gy - 1
@@ -385,6 +405,7 @@ function Write-MazeDebugView {
                 elseif ($cell.IsKey) { ' K ' }
                 elseif ($cell.IsEntrance) { ' E ' }
                 elseif ($cell.IsExit) { ' A ' }
+                elseif ($cell.IsCoin) { " $([char]0x25CF) " }
                 else { '   ' }
             $south = if ($cell.SouthWall) { '___' } else { '   ' }
 
@@ -531,7 +552,7 @@ function Read-MazeLevelConfigs {
             $currentItem = $null
             if ($current) { $levels += $current }
             $current = @{
-                Level = [int]$Matches[1]; Seed = -1; Name = $null; Complex = 10
+                Level = [int]$Matches[1]; Seed = -1; Name = $null; Complex = 10; Coins = 0
                 ColorScheme = @{ Wand = $null; Floorr = $null }
                 Furniture = @()
             }
@@ -554,6 +575,9 @@ function Read-MazeLevelConfigs {
         }
         elseif ($current -and $line -match '^\s*complex:\s*(\d+)\s*(?:#.*)?$') {
             $current.Complex = [int]$Matches[1]
+        }
+        elseif ($current -and $line -match '^\s*coins:\s*(\d+)\s*(?:#.*)?$') {
+            $current.Coins = [int]$Matches[1]
         }
         elseif ($current -and $line -match '^\s*wand:\s*(.*)$') {
             $current.ColorScheme.Wand = ConvertFrom-YamlScalar $Matches[1]
@@ -635,7 +659,7 @@ foreach ($levelConfig in $levelConfigs) {
     $effectiveWidth = $levelConfig.Width * $tier.Scale
     $effectiveHeight = $levelConfig.Height * $tier.Scale
 
-    $maze = [Maze]::new($effectiveWidth, $effectiveHeight, $levelConfig.Complex)
+    $maze = [Maze]::new($effectiveWidth, $effectiveHeight, $levelConfig.Complex, $levelConfig.Coins)
     Set-EdgeEntranceAndExit -Maze $maze
     $rows = ConvertTo-TileRows -Maze $maze
 
@@ -661,6 +685,7 @@ foreach ($levelConfig in $levelConfigs) {
         width       = $rows[0].Length
         height      = $rows.Count
         cellSize    = $tier.CellSizePx
+        coins       = $maze.Coins.Count
         # @(...) erzwingt Object[] statt String[]/nichts bei leerer Liste:
         # ConvertTo-Json in Windows PowerShell 5.1 serialisiert ein
         # System.String[] sonst fehlerhaft als {value:[...], Count:N} statt als
@@ -685,5 +710,5 @@ foreach ($levelConfig in $levelConfigs) {
     [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
     Move-Item -Path $tempPath -Destination $outputPath -Force
 
-    Write-Host "Karte generiert: $outputPath (Level $($levelConfig.Level), $($payload.width)x$($payload.height), Seed $currentSeed, Complex $($levelConfig.Complex), CellSize $($tier.CellSizePx))"
+    Write-Host "Karte generiert: $outputPath (Level $($levelConfig.Level), $($payload.width)x$($payload.height), Seed $currentSeed, Complex $($levelConfig.Complex), CellSize $($tier.CellSizePx), Coins $($maze.Coins.Count))"
 }

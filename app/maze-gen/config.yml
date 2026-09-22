@@ -6,6 +6,7 @@ maze_level:
       height: 10
       seed: -1
       complex: 10
+      coins: 5
     render:
       colo_schema:
         wand: "#b9692c"
@@ -15,18 +16,18 @@ maze_level:
           probability: 60
           dependencies: "border"
         - type: "back"
-          probability: 20
+          probability: 50
         - type: "table"
-          probability: 15
+          probability: 50
           dependencies: "border"
         - type: "sofa"
-          probability: 8
+          probability: 0
         - type: "pot"
-          probability: 25
+          probability: 50
         - type: "grate"
-          probability: 10
+          probability: 30
         - type: "debris"
-          probability: 15
+          probability: 40
 
   - level: 2
     gen:
@@ -35,6 +36,7 @@ maze_level:
       height: 4
       seed: -1
       complex: 20
+      coins: 3
     render:
       colo_schema:
         wand: "#445588"
@@ -64,6 +66,7 @@ maze_level:
       height: 14
       seed: -1
       complex: 40
+      coins: 8
     render:
       colo_schema:
         wand: "#5b3a72"
