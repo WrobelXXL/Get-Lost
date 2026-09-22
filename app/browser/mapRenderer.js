@@ -34,6 +34,8 @@ const BASE_CAP_TOP = 14;
 const BASE_CAP_WIDTH = 8;
 const BASE_FACE_HEIGHT = 36;
 const LIGHT_RADIUS = 58;
+const SHADOW_RADIUS = 220;
+const SHADOW_SAMPLE_SIZE = 8;
 const isFloor = ch => ch !== undefined && ch !== ' ' && ch !== '#';
 
 function wallGeometry(t) {
@@ -376,6 +378,81 @@ function placeGate(ctx, map, t, sprites, mark) {
     else if (gate.side === 'east') { stand(mapWidthPx - pillar.width / 2, py); stand(mapWidthPx - pillar.width / 2, py + t); }
 }
 
+// Bake a small light map once, then stretch it smoothly across the scene.
+// Rays stop at the actual wall caps, while a short blur gives their shadows a
+// soft edge. This keeps distant rooms darker without hard circles or wedges.
+function drawAmbientShadows(ctx, mask, lamps) {
+    const { width, height } = ctx.canvas;
+    const step = SHADOW_SAMPLE_SIZE;
+    const columns = Math.ceil(width / step), rows = Math.ceil(height / step);
+    const light = new Float32Array(columns * rows);
+    for (const lamp of lamps) {
+        const left = Math.max(0, Math.floor((lamp.x - SHADOW_RADIUS) / step));
+        const right = Math.min(columns - 1, Math.ceil((lamp.x + SHADOW_RADIUS) / step));
+        const top = Math.max(0, Math.floor((lamp.y - SHADOW_RADIUS) / step));
+        const bottom = Math.min(rows - 1, Math.ceil((lamp.y + SHADOW_RADIUS) / step));
+        for (let row = top; row <= bottom; row++) {
+            const y = Math.min(height - 1, (row + 0.5) * step);
+            for (let column = left; column <= right; column++) {
+                const x = Math.min(width - 1, (column + 0.5) * step);
+                const dx = x - lamp.x, dy = y - lamp.y;
+                const distance = Math.hypot(dx, dy);
+                if (distance >= SHADOW_RADIUS) continue;
+                const steps = Math.ceil(distance / 4);
+                let blocked = false;
+                for (let s = 4; s < steps - 2; s++) {
+                    const sx = Math.round(lamp.x + dx * s / steps);
+                    const sy = Math.round(lamp.y + dy * s / steps);
+                    if (mask[sy * width + sx]) { blocked = true; break; }
+                }
+                if (blocked) continue;
+                const reach = 1 - distance / SHADOW_RADIUS;
+                const strength = smoothstep(reach);
+                const i = row * columns + column;
+                light[i] = Math.max(light[i], strength);
+            }
+        }
+    }
+
+    // A one-sample penumbra removes aliasing at wall edges. Light can bleed
+    // only a few pixels across a wall, rather than illuminating the next room.
+    const blurred = new Float32Array(light.length);
+    for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+            let sum = 0, weight = 0;
+            for (let oy = -1; oy <= 1; oy++) {
+                const y = row + oy;
+                if (y < 0 || y >= rows) continue;
+                for (let ox = -1; ox <= 1; ox++) {
+                    const x = column + ox;
+                    if (x < 0 || x >= columns) continue;
+                    const w = (ox === 0 ? 2 : 1) * (oy === 0 ? 2 : 1);
+                    sum += light[y * columns + x] * w;
+                    weight += w;
+                }
+            }
+            blurred[row * columns + column] = sum / weight;
+        }
+    }
+
+    const shadow = canvas(columns, rows);
+    const c = shadow.getContext('2d');
+    const pixels = c.createImageData(columns, rows);
+    const color = hexToRgb(PALETTE.void);
+    for (let i = 0; i < blurred.length; i++) {
+        const p = i * 4;
+        pixels.data[p] = color[0];
+        pixels.data[p + 1] = color[1];
+        pixels.data[p + 2] = color[2];
+        pixels.data[p + 3] = Math.round((0.38 - 0.22 * blurred[i]) * 255);
+    }
+    c.putImageData(pixels, 0, 0);
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(shadow, 0, 0, width, height);
+    ctx.restore();
+}
+
 // Bake illumination into the real material colors. Animation only redraws
 // these small cached patches, without a full-maze redraw or pixel processing.
 function lightPatch(base, mask, lamp) {
@@ -400,9 +477,9 @@ function lightPatch(base, mask, lamp) {
                 if (mask[sy * base.width + sx]) { blocked = true; break; }
             }
             if (blocked) continue;
-            target.data[i] = 38 * strength;
-            target.data[i + 1] = 20 * strength;
-            target.data[i + 2] = 4 * strength;
+            target.data[i] = 45 * strength;
+            target.data[i + 1] = 24 * strength;
+            target.data[i + 2] = 5 * strength;
             target.data[i + 3] = 255;
         }
     }
@@ -426,12 +503,7 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     placeGate(ctx, map, tileset.cellSize, sprites, 'A');
     const coins = findCoins(map, tileset.cellSize);
     const coinFrames = loadCoinFrames();
-    // Faint ambient dimming everywhere; lamp glow (drawLights) brightens its
-    // own radius back up, so only corners without a nearby torch read darker.
-    ctx.fillStyle = PALETTE.void;
-    ctx.globalAlpha = 0.16;
-    ctx.fillRect(0, 0, width, height);
-    ctx.globalAlpha = 1;
+    drawAmbientShadows(ctx, mask, lamps);
     const base = canvas(width, height);
     base.getContext('2d', { willReadFrequently: true }).drawImage(ctx.canvas, 0, 0);
     const lights = lamps.map(lamp => ({ ...lamp, patch: null }));
