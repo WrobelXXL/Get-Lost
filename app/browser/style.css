@@ -25,9 +25,25 @@ body {
     background: #09080e;
 }
 
-canvas#map {
-    display: block;
+.game-stage {
     position: relative;
+    display: block;
+    isolation: isolate;
+}
+
+.game-stage canvas {
+    display: block;
+    position: absolute;
+    inset: 0;
     image-rendering: crisp-edges;
     image-rendering: pixelated;
+}
+
+canvas#map {
+    z-index: 0;
+}
+
+canvas#actors {
+    z-index: 1;
+    pointer-events: none;
 }

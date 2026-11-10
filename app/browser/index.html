@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Get-Lost</title>
+    <link rel="stylesheet" href="menu.css" />
+</head>
+<body>
+    <!-- "Start Game" fuehrt bewusst ohne Query-String zu /play.php - das
+         landet ueber dessen Default (kein "level"-Parameter -> Level 1) beim
+         ersten/kleinsten Level, ohne dass im Link ein Level auftaucht, das man
+         per URL hochzaehlen und so Level ueberspringen koennte. Eine echte
+         Fortschritts-/Freischaltlogik (welches Level als naechstes drankommt)
+         ist noch nicht gebaut - kommt spaeter serverseitig.
+
+         LAN erstellen/suchen sind noch reine Design-Vorschau (kein Backend). -->
+    <div class="menu-backdrop"></div>
+    <div class="menu-vignette"></div>
+
+    <main class="menu-shell">
+        <h1 class="menu-title">Get<span>Lost</span></h1>
+
+        <nav class="menu-buttons">
+            <a href="play.php" class="menu-btn menu-btn--primary">Start Game</a>
+            <div class="menu-row">
+                <button type="button" id="lan-host" class="menu-btn menu-btn--half">Open to LAN</button>
+                <button type="button" id="lan-find" class="menu-btn menu-btn--half">Finding local games</button>
+            </div>
+            <ul id="lan-list" class="lan-list" hidden></ul>
+        </nav>
+    </main>
+
+    <script type="module" src="menu.js"></script>
+</body>
+</html>

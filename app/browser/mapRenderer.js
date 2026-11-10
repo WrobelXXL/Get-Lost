@@ -17,6 +17,8 @@ const COIN_BOB_PX = 4;
 const COIN_BOB_MS = 900;
 const COIN_SQUASH = 0.12;
 const COIN_SHADOW_ALPHA = 0.35;
+const COIN_PICKUP_MS = 480;
+const COIN_PICKUP_RISE = 30;
 
 /** Eases the crossfade between two rotation frames instead of a hard cut. */
 function smoothstep(t) {
@@ -348,6 +350,10 @@ function findCoins(map, t) {
             coins.push({
                 x: x * t + t / 2,
                 y: y * t + t / 2,
+                column: x,
+                row: y,
+                collectedAt: null,
+                finished: false,
                 // Independent, stable per-coin offsets so a level with several
                 // coins doesn't have them all spin/bob in lockstep.
                 frameOffset: hash(x, y, 5231),
@@ -489,7 +495,10 @@ function lightPatch(base, mask, lamp) {
 
 /** Render once; return a bounded light animation layer for game.js. */
 export function renderMap(ctx, map, tileset, decor = {}) {
-    const { colorScheme = {}, furniture = [] } = decor;
+    // Older/generated maps can serialize missing arrays as null. Normalize at
+    // the renderer boundary so a level without furniture still remains valid.
+    const colorScheme = decor?.colorScheme ?? {};
+    const furniture = Array.isArray(decor?.furniture) ? decor.furniture : [];
     const { width, height } = ctx.canvas;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = PALETTE.void;
@@ -503,6 +512,15 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     placeGate(ctx, map, tileset.cellSize, sprites, 'A');
     const coins = findCoins(map, tileset.cellSize);
     const coinFrames = loadCoinFrames();
+    const assetsReady = Promise.all(coinFrames.map(frame => {
+        if (frame.complete) return Promise.resolve();
+        return new Promise(resolve => {
+            frame.addEventListener('load', resolve, { once: true });
+            // A missing frame must not keep the renderer waiting forever; the
+            // remaining loaded frames can still animate the coin.
+            frame.addEventListener('error', resolve, { once: true });
+        });
+    }));
     drawAmbientShadows(ctx, mask, lamps);
     const base = canvas(width, height);
     base.getContext('2d', { willReadFrequently: true }).drawImage(ctx.canvas, 0, 0);
@@ -511,40 +529,74 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     // only drawLights() paints a coin, so restoring its patch from "base"
     // always uncovers plain, coin-free floor underneath the previous frame.
     const coinRadius = COIN_SIZE / 2 + COIN_BOB_PX + 2;
+    // Pickup sparks and the rising coin cover more than the idle sprite. The
+    // complete former effect area must be restored or it would leave trails.
+    const coinRestoreRadius = coinRadius + COIN_PICKUP_RISE + 8;
     return {
+        assetsReady,
         lampCount: lamps.length,
         coinCount: coins.length,
-        drawLights(time = 0, visible = { left: 0, top: 0, right: width, bottom: height }) {
-            // Restore intersecting patches before drawing overlapping lights.
+        get remainingCoinCount() {
+            return coins.filter(coin => coin.collectedAt === null).length;
+        },
+        collectCoinsNear(x, y, radius, time = performance.now()) {
+            const collected = [];
+            for (const coin of coins) {
+                if (coin.collectedAt !== null || Math.hypot(coin.x - x, coin.y - y) > radius) continue;
+                coin.collectedAt = time;
+                collected.push({ x: coin.x, y: coin.y, column: coin.column, row: coin.row });
+            }
+            return collected;
+        },
+        drawLights(time = 0, visible = { left: 0, top: 0, right: width, bottom: height }, motionReduced = false) {
+            const motionTime = motionReduced ? 0 : time;
+            // Restore every dynamic region before drawing any of them. A coin
+            // can sit directly below a torch; restoring its enlarged pickup
+            // area after the lamp was drawn would otherwise erase the fresh
+            // flame/glow for this frame.
             const active = lights.filter(p => p.x - LIGHT_RADIUS < visible.right && p.y - LIGHT_RADIUS < visible.bottom && p.x + LIGHT_RADIUS > visible.left && p.y + LIGHT_RADIUS > visible.top);
+            const activeCoins = coins.filter(c => !c.finished && c.x - coinRestoreRadius < visible.right && c.y - coinRestoreRadius < visible.bottom && c.x + coinRestoreRadius > visible.left && c.y + coinRestoreRadius > visible.top);
             for (const lamp of active) lamp.patch ??= lightPatch(base, mask, lamp);
             for (const { patch: p } of active) ctx.drawImage(base, p.x, p.y, p.image.width, p.image.height, p.x, p.y, p.image.width, p.image.height);
+            for (const coin of activeCoins) {
+                const px = Math.max(0, Math.round(coin.x - coinRestoreRadius));
+                const py = Math.max(0, Math.round(coin.y - coinRestoreRadius));
+                const right = Math.min(width, Math.round(coin.x + coinRestoreRadius));
+                const bottom = Math.min(height, Math.round(coin.y + coinRestoreRadius));
+                const sizeX = right - px, sizeY = bottom - py;
+                ctx.drawImage(base, px, py, sizeX, sizeY, px, py, sizeX, sizeY);
+            }
+
             ctx.globalCompositeOperation = 'lighter';
             for (const lamp of active) {
-                ctx.globalAlpha = 0.80 + Math.sin(time / 670 + lamp.phase) * 0.07 + Math.sin(time / 1390 + lamp.phase * 2) * 0.035;
+                ctx.globalAlpha = 0.80 + Math.sin(motionTime / 670 + lamp.phase) * 0.07 + Math.sin(motionTime / 1390 + lamp.phase * 2) * 0.035;
                 ctx.drawImage(lamp.patch.image, lamp.patch.x, lamp.patch.y);
             }
             ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = 'source-over';
             for (const lamp of active) {
-                const frame = sprites.flames[(Math.floor(time / 190) + lamp.phase) % sprites.flames.length];
+                const frame = sprites.flames[(Math.floor(motionTime / 190) + lamp.phase) % sprites.flames.length];
                 ctx.drawImage(frame, lamp.x - Math.floor(frame.width / 2), lamp.y - 5);
             }
 
-            const activeCoins = coins.filter(c => c.x - coinRadius < visible.right && c.y - coinRadius < visible.bottom && c.x + coinRadius > visible.left && c.y + coinRadius > visible.top);
             for (const coin of activeCoins) {
-                const px = Math.round(coin.x - coinRadius), py = Math.round(coin.y - coinRadius), size = coinRadius * 2;
-                ctx.drawImage(base, px, py, size, size, px, py, size, size);
-            }
-            for (const coin of activeCoins) {
-                const rawIndex = time / COIN_SPIN_MS + coin.frameOffset;
+                let pickup = coin.collectedAt === null ? 0 : Math.max(0, (time - coin.collectedAt) / COIN_PICKUP_MS);
+                if (motionReduced && coin.collectedAt !== null) pickup = 1;
+                if (pickup >= 1) {
+                    coin.finished = true;
+                    continue;
+                }
+                const pickupEase = 1 - (1 - pickup) ** 3;
+                const pickupAlpha = (1 - pickup) ** 0.65;
+                const pickupScale = 1 + Math.sin(pickup * Math.PI) * 0.34 - pickup * 0.78;
+                const rawIndex = motionTime / COIN_SPIN_MS + coin.frameOffset;
                 const index = Math.floor(rawIndex);
                 const frameA = coinFrames[((index % coinFrames.length) + coinFrames.length) % coinFrames.length];
                 const frameB = coinFrames[(((index + 1) % coinFrames.length) + coinFrames.length) % coinFrames.length];
                 if (!frameA.complete || !frameA.naturalWidth) continue;
                 const blend = smoothstep(rawIndex - index);
 
-                const bobPhase = time / COIN_BOB_MS + coin.bobPhase;
+                const bobPhase = motionTime / COIN_BOB_MS + coin.bobPhase;
                 const bob = Math.sin(bobPhase) * COIN_BOB_PX;
                 // Stretches tall on the way up, squashes flat at the bottom of
                 // the bob - the same weight cue a coin bounce would have.
@@ -558,19 +610,42 @@ export function renderMap(ctx, map, tileset, decor = {}) {
                 const rise = (bob + COIN_BOB_PX) / (COIN_BOB_PX * 2);
                 const shadowScale = 1 - rise * 0.35;
                 ctx.save();
-                ctx.globalAlpha = COIN_SHADOW_ALPHA * (1 - rise * 0.6);
+                ctx.globalAlpha = COIN_SHADOW_ALPHA * (1 - rise * 0.6) * (1 - pickup);
                 ctx.fillStyle = '#000000';
                 ctx.beginPath();
                 ctx.ellipse(coin.x, coin.y + COIN_SIZE / 2 - 2, (COIN_SIZE / 2.6) * shadowScale, (COIN_SIZE / 6) * shadowScale, 0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
 
+                if (pickup > 0) {
+                    // A short expanding ring and four sparks make collection
+                    // readable even while the player covers most of the coin.
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = (1 - pickup) * 0.85;
+                    ctx.strokeStyle = '#ffe46b';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(coin.x, coin.y - pickupEase * COIN_PICKUP_RISE, 9 + pickupEase * 20, 0, Math.PI * 2);
+                    ctx.stroke();
+                    for (let spark = 0; spark < 4; spark++) {
+                        const angle = spark * Math.PI / 2 + coin.bobPhase;
+                        const inner = 7 + pickupEase * 11, outer = inner + 5 + pickupEase * 7;
+                        ctx.beginPath();
+                        ctx.moveTo(coin.x + Math.cos(angle) * inner, coin.y - pickupEase * COIN_PICKUP_RISE + Math.sin(angle) * inner);
+                        ctx.lineTo(coin.x + Math.cos(angle) * outer, coin.y - pickupEase * COIN_PICKUP_RISE + Math.sin(angle) * outer);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+
                 ctx.save();
-                ctx.translate(Math.round(coin.x), Math.round(coin.y + bob));
-                ctx.scale(scaleX, scaleY);
+                ctx.globalAlpha = pickupAlpha;
+                ctx.translate(Math.round(coin.x), Math.round(coin.y + bob - pickupEase * COIN_PICKUP_RISE));
+                ctx.scale(scaleX * pickupScale, scaleY * pickupScale);
                 ctx.drawImage(frameA, -COIN_SIZE / 2, -COIN_SIZE / 2);
                 if (blend > 0.01 && frameB.complete && frameB.naturalWidth) {
-                    ctx.globalAlpha = blend;
+                    ctx.globalAlpha = pickupAlpha * blend;
                     ctx.drawImage(frameB, -COIN_SIZE / 2, -COIN_SIZE / 2);
                 }
                 ctx.restore();
