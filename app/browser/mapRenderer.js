@@ -1,6 +1,6 @@
 // Presentation only: every map character and its 32px logical cell stay intact.
 import { PALETTE, hash, CELL_SIZE } from './tileset.js';
-import { createDecorations } from './decorations.js';
+import { loadDecorations, createDecorations } from './decorations.js';
 import { DungeonWall } from './dungeonWall.js';
 import { loadCoinFrames } from './coins.js';
 
@@ -488,7 +488,7 @@ function lightPatch(base, mask, lamp) {
 }
 
 /** Render once; return a bounded light animation layer for game.js. */
-export function renderMap(ctx, map, tileset, decor = {}) {
+export async function renderMap(ctx, map, tileset, decor = {}) {
     const { colorScheme = {}, furniture = [] } = decor;
     const { width, height } = ctx.canvas;
     ctx.imageSmoothingEnabled = false;
@@ -497,6 +497,7 @@ export function renderMap(ctx, map, tileset, decor = {}) {
     drawGround(ctx, map, tileset);
     const mask = wallMask(map, tileset.cellSize, width, height);
     drawWalls(ctx, mask, width, height, colorScheme.wand, tileset.cellSize);
+    await loadDecorations();
     const sprites = createDecorations();
     const lamps = placeDetails(ctx, map, tileset.cellSize, sprites, furniture);
     placeGate(ctx, map, tileset.cellSize, sprites, 'P');

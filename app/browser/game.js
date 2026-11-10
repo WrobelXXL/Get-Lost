@@ -18,10 +18,11 @@ canvas.style.width = `${canvas.width * SCALE}px`;
 canvas.style.height = `${canvas.height * SCALE}px`;
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
-const scene = renderMap(ctx, map, tileset, decor);
+
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;
+let scene = null;
 
 function alignCanvas() {
     // Preserve safe centering, but avoid half-pixel origins in odd viewports.
@@ -41,13 +42,10 @@ function visibleArea() {
     };
 }
 
-// 10 fps is sufficient for slow torch animation; the coin spin/bob reads as
-// too sluggish at that rate, so it gets a brisker interval of its own.
-// Hidden tabs do no work either way.
-const FRAME_INTERVAL_MS = scene.coinCount ? 50 : 100;
-
 function frame(time) {
-    if (time - lastFrame >= FRAME_INTERVAL_MS) {
+    if (!scene) return;
+    const interval = scene.coinCount ? 50 : 100;
+    if (time - lastFrame >= interval) {
         scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
         lastFrame = time;
     }
@@ -56,6 +54,7 @@ function frame(time) {
 
 function syncAnimation() {
     cancelAnimationFrame(animation);
+    if (!scene) return;
     scene.drawLights(0, visibleArea());
     if (!document.hidden && !reducedMotion.matches && (scene.lampCount || scene.coinCount)) {
         lastFrame = -Infinity;
@@ -67,10 +66,17 @@ document.addEventListener('visibilitychange', syncAnimation);
 reducedMotion.addEventListener('change', syncAnimation);
 window.addEventListener('resize', () => {
     alignCanvas();
-    scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+    if (scene) scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
 }, { passive: true });
-window.addEventListener('scroll', () => scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea()), { passive: true });
+window.addEventListener('scroll', () => {
+    if (scene) scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+}, { passive: true });
 window.addEventListener('pagehide', () => cancelAnimationFrame(animation));
 window.addEventListener('pageshow', syncAnimation);
-alignCanvas();
-syncAnimation();
+
+// Load sprites then render
+renderMap(ctx, map, tileset, decor).then(s => {
+    scene = s;
+    alignCanvas();
+    syncAnimation();
+});

@@ -11,6 +11,7 @@ COPY app/browser/ ./
 # liegen, damit game.js/mapRenderer.js sie unter "coins/coin-N.png" laden
 # kann.
 COPY public/coins/ ./coins/
+COPY public/assets/ ./assets/
 
 ENV MAP_DATA_DIR=/data
 

@@ -1,4 +1,16 @@
 services:
+  browser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - map-data:/data
+    environment:
+      MAP_DATA_DIR: /data
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
   maze-gen:
     build:
       context: .
@@ -8,21 +20,8 @@ services:
     environment:
       MAP_OUTPUT_PATH: /data/map.json
     restart: "no"
-
-  browser:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      maze-gen:
-        condition: service_completed_successfully
-    volumes:
-      - map-data:/data:ro
-    environment:
-      MAP_DATA_DIR: /data
-    ports:
-      - "8080:80"
-    restart: unless-stopped
+    profiles:
+      - generate
 
 volumes:
   map-data:
