@@ -1,6 +1,7 @@
 // Map data and cell coordinates are unchanged; only the presentation animates.
 import { createTileset, CELL_SIZE } from './tileset.js';
 import { renderMap } from './mapRenderer.js';
+import { createPlayer } from './player.js';
 
 const SCALE = 1;
 const map = window.__MAP__;
@@ -19,10 +20,16 @@ canvas.style.height = `${canvas.height * SCALE}px`;
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
+// player-control.ps1 laeuft als eigener Service; die URL kommt aus
+// index.php (window.__PLAYER_API__), Fallback auf denselben Host:8081.
+const playerApi = window.__PLAYER_API__ || `${location.protocol}//${location.hostname}:8081`;
+const playerLevel = window.__PLAYER_LEVEL__ ?? 1;
+
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;
 let scene = null;
+let player = null;
 
 function alignCanvas() {
     // Preserve safe centering, but avoid half-pixel origins in odd viewports.
@@ -42,11 +49,20 @@ function visibleArea() {
     };
 }
 
+function drawFrame(time) {
+    if (!scene) return;
+    if (player) {
+        player.update(time);
+        player.hooks.restore((x, y, w, h) => scene.restoreRect(x, y, w, h));
+    }
+    scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
+    if (player) player.hooks.draw(ctx, time);
+}
+
 function frame(time) {
     if (!scene) return;
-    const interval = scene.coinCount ? 50 : 100;
-    if (time - lastFrame >= interval) {
-        scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
+    if (time - lastFrame >= 50) {
+        drawFrame(time);
         lastFrame = time;
     }
     animation = requestAnimationFrame(frame);
@@ -55,8 +71,10 @@ function frame(time) {
 function syncAnimation() {
     cancelAnimationFrame(animation);
     if (!scene) return;
-    scene.drawLights(0, visibleArea());
-    if (!document.hidden && !reducedMotion.matches && (scene.lampCount || scene.coinCount)) {
+    drawFrame(0);
+    // Always animate: the player needs continuous frames for movement,
+    // even when there are no lamps or coins on the map.
+    if (!document.hidden) {
         lastFrame = -Infinity;
         animation = requestAnimationFrame(frame);
     }
@@ -66,10 +84,10 @@ document.addEventListener('visibilitychange', syncAnimation);
 reducedMotion.addEventListener('change', syncAnimation);
 window.addEventListener('resize', () => {
     alignCanvas();
-    if (scene) scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+    if (scene) drawFrame(performance.now());
 }, { passive: true });
 window.addEventListener('scroll', () => {
-    if (scene) scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+    if (scene) drawFrame(performance.now());
 }, { passive: true });
 window.addEventListener('pagehide', () => cancelAnimationFrame(animation));
 window.addEventListener('pageshow', syncAnimation);
@@ -77,6 +95,14 @@ window.addEventListener('pageshow', syncAnimation);
 // Load sprites then render
 renderMap(ctx, map, tileset, decor).then(s => {
     scene = s;
+    player = createPlayer({
+        map,
+        cellSize: tileset.cellSize,
+        scene,
+        spriteUrl: 'assets/furniture/pillar.png',
+        apiUrl: playerApi,
+        level: playerLevel,
+    });
     alignCanvas();
     syncAnimation();
 });

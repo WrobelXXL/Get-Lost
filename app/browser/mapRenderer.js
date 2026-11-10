@@ -510,11 +510,29 @@ export async function renderMap(ctx, map, tileset, decor = {}) {
     const lights = lamps.map(lamp => ({ ...lamp, patch: null }));
     // Never baked into "base" (same reasoning as the flame sprites above):
     // only drawLights() paints a coin, so restoring its patch from "base"
-    // always uncovers plain, coin-free floor underneath the previous frame.
+        // always uncovers plain, coin-free floor underneath the previous frame.
     const coinRadius = COIN_SIZE / 2 + COIN_BOB_PX + 2;
     return {
         lampCount: lamps.length,
         coinCount: coins.length,
+        /** Remove the coin whose centre is closest to (px, py). Returns the
+         *  bounding rect so the caller can schedule a repaint, or null. */
+        removeCoinAt(px, py) {
+            let best = -1, bestDist = Infinity;
+            for (let i = 0; i < coins.length; i++) {
+                const d = Math.hypot(coins[i].x - px, coins[i].y - py);
+                if (d < bestDist) { bestDist = d; best = i; }
+            }
+            if (best < 0 || bestDist > COIN_SIZE) return null;
+            const c = coins.splice(best, 1)[0];
+            const r = coinRadius;
+            return { x: Math.round(c.x - r), y: Math.round(c.y - r), w: Math.round(r * 2), h: Math.round(r * 2) };
+        },
+        /** Restore an arbitrary rectangle from the baked base layer. Used by
+         *  the player sprite to erase its previous position each frame. */
+        restoreRect(x, y, w, h) {
+            ctx.drawImage(base, x, y, w, h, x, y, w, h);
+        },
         drawLights(time = 0, visible = { left: 0, top: 0, right: width, bottom: height }) {
             // Restore intersecting patches before drawing overlapping lights.
             const active = lights.filter(p => p.x - LIGHT_RADIUS < visible.right && p.y - LIGHT_RADIUS < visible.bottom && p.x + LIGHT_RADIUS > visible.left && p.y + LIGHT_RADIUS > visible.top);
