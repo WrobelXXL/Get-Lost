@@ -497,7 +497,7 @@ export async function renderMap(ctx, map, tileset, decor = {}) {
     drawGround(ctx, map, tileset);
     const mask = wallMask(map, tileset.cellSize, width, height);
     drawWalls(ctx, mask, width, height, colorScheme.wand, tileset.cellSize);
-    await loadDecorations();
+        await loadDecorations(furniture);
     const sprites = createDecorations();
     const lamps = placeDetails(ctx, map, tileset.cellSize, sprites, furniture);
     placeGate(ctx, map, tileset.cellSize, sprites, 'P');
