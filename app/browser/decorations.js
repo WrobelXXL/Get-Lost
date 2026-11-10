@@ -1,362 +1,75 @@
-// Small, hand-pixelled dungeon objects. All coordinates are native pixels;
-// the renderer should draw them at integer positions with smoothing disabled.
-// Floor sprites are anchored at their bottom centre. The 11 × 34 torch uses
-// anchor (5, 33); draw an 11 × 16 flame at the same top-left as its bracket.
+// Dungeon decoration sprites, loaded from PNG files.
+// Sprite paths come from config.yml via the furniture list in map JSON.
+// Internal sprites (pillar, flames) are always loaded from assets/furniture/.
 
-const CLAY = {
-    o: '#201b1d', d: '#35251f', s: '#523522', b: '#744a28',
-    m: '#915c2d', l: '#af7237', h: '#c38a46', i: '#100f13',
-};
+const ASSET_PATH = 'assets/furniture';
 
-function canvas(width, height) {
-    const result = document.createElement('canvas');
-    result.width = width;
-    result.height = height;
-    result.getContext('2d').imageSmoothingEnabled = false;
-    return result;
+// Internal sprites that are always needed (not config-driven).
+const INTERNAL_SPRITES = ['pillar', 'flame-0', 'flame-1', 'flame-2', 'flame-3'];
+
+function loadImageAsCanvas(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const cvs = document.createElement('canvas');
+            cvs.width = img.naturalWidth;
+            cvs.height = img.naturalHeight;
+            const ctx = cvs.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0);
+            resolve(cvs);
+        };
+        img.onerror = () => reject(new Error(`Failed to load sprite: ${src}`));
+        img.src = src;
+    });
 }
 
-function pixelSprite(rows, palette, width = rows[0].length, height = rows.length) {
-    const result = canvas(width, height);
-    const ctx = result.getContext('2d');
-    for (let y = 0; y < rows.length; y++) {
-        for (let x = 0; x < rows[y].length; x++) {
-            const color = palette[rows[y][x]];
-            if (!color) continue;
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, 1, 1);
+let cached = null;
+
+/**
+ * Load all decoration sprites. Furniture entries with a "sprite" path
+ * are loaded from that path; internal sprites (pillar, flames) are
+ * always loaded from assets/furniture/.
+ *
+ * @param {Array} furniture - The furniture array from map JSON (config.yml).
+ */
+export async function loadDecorations(furniture = []) {
+    if (cached) return cached;
+
+    const sprites = {};
+
+    // Load internal sprites (always needed)
+    for (const name of INTERNAL_SPRITES) {
+        sprites[name] = await loadImageAsCanvas(`${ASSET_PATH}/${name}.png`);
+    }
+
+    // Load config-driven sprites
+    for (const entry of furniture) {
+        if (!entry.sprite || sprites[entry.type]) continue;
+        try {
+            sprites[entry.type] = await loadImageAsCanvas(entry.sprite);
+        } catch (e) {
+            console.warn(`Sprite for "${entry.type}" not found at ${entry.sprite}, skipping.`);
         }
     }
-    return result;
-}
 
-function potSprite() {
-    // Wider mouth, a chipped rim and quiet bands of clay retain one-pixel
-    // outlines at the reference's larger object scale.
-    return pixelSprite([
-        'ooooooo',
-        'oollllmmmsssoo',
-        'olhhmmmbbbdddso',
-        'olhmbddiiiiiddbso',
-        'olhbdiiiiiiiiiddso',
-        'olmbduiiiiiiiiddso',
-        'olmbduiiiiiiiiidso',
-        'olmbduiiiiiiiiddso',
-        'omlmbddiiiiiiddbso',
-        'omllmmmbbbbbbbssdo',
-        'obmllhhlllllmmssdo',
-        'obmmlllllmmmmmbsdo',
-        'obmlmmmmmmbbbbssddo',
-        'obmlmmmmmmmmbbbssddo',
-        'obmlmmmmmmmmbbbssdddo',
-        'obmlmmmmmbbbbbbssdddo',
-        'obmlmmmmbbbbbbbsssddo',
-        'obmlmmmbbbbbbbbsssddo',
-        'obmmmmmbbsbbbbbsssddo',
-        'obmmmmbbbbbbbbbsssddo',
-        'obmmmbbbbbbbbbssssddo',
-        'obmmmbbbbsbbbbssssddo',
-        'obmmbbbbbbbbbsssdddo',
-        'obmbbbbbbbbbbsssddo',
-        'obbbbbbbbbbsssdddo',
-        'odbbbbbbssssdddo',
-        'oodddddddddoo',
-        'ooooooooo',
-    ].map(row => '.'.repeat(Math.floor((21 - row.length) / 2)) + row), { ...CLAY, u: '#493425' }, 21, 28);
-}
-
-function smallPotSprite() {
-    return pixelSprite([
-        '....ooo....',
-        '..oolmsoo..',
-        '.olbiddso..',
-        '.ohiiiido..',
-        '.olbiddso..',
-        '.omlllmsso.',
-        'obmmmbbsddo',
-        'oblmmmbsddo',
-        'obmmmmbsddo',
-        'obmbbbsdddo',
-        '.obbbbsddo.',
-        '.obbbssddo.',
-        '..oddddoo..',
-        '...ooooo...',
-    ], CLAY);
-}
-
-function potCluster(pot) {
-    const result = canvas(32, 34);
-    const ctx = result.getContext('2d');
-    ctx.drawImage(pot, 11, 0);
-    ctx.drawImage(smallPotSprite(), 20, 20);
-    ctx.drawImage(pot, 0, 6);
-    return result;
-}
-
-function grateSprite() {
-    const result = canvas(26, 37);
-    const ctx = result.getContext('2d');
-    const rect = (color, x, y, width, height) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, width, height);
+    cached = {
+        pillar: sprites['pillar'],
+        flames: [
+            sprites['flame-0'],
+            sprites['flame-1'],
+            sprites['flame-2'],
+            sprites['flame-3'],
+        ],
+        // All config-driven sprites are accessible by their type name.
+        // mapRenderer.js looks up sprites[entry.type] for each furniture entry.
+        ...sprites,
     };
-    // The reference has a worn upright casing with a solid top panel and
-    // narrow, broken vent slots below it, rather than a regular metal grid.
-    rect('#211e23', 2, 0, 22, 35);
-    rect('#211e23', 0, 3, 26, 29);
-    rect('#423a35', 1, 2, 24, 31);
-    rect('#6c5c46', 2, 1, 22, 11);
-    rect('#867253', 3, 1, 19, 1);
-    rect('#5d5140', 23, 2, 1, 10);
-    rect('#736148', 3, 3, 1, 6);
-    rect('#504638', 2, 11, 22, 2);
-    rect('#242125', 2, 13, 22, 3);
-    rect('#897456', 3, 13, 3, 1);
-    rect('#746246', 8, 13, 6, 1);
-    rect('#675740', 19, 13, 4, 1);
-    rect('#3b342e', 7, 15, 12, 1);
-    rect('#5a4d3b', 2, 16, 22, 16);
-    rect('#796349', 2, 16, 1, 14);
-    rect('#372d2a', 23, 16, 1, 16);
-    for (let y = 17; y <= 29; y += 3) {
-        rect('#292528', 4, y, 4, 1);
-        rect('#292528', 11, y, 4, 1);
-        rect('#292528', 18, y, 4, 1);
-        rect('#756047', 4, y + 1, 3, 1);
-        rect('#6b583f', 12, y + 1, 3, 1);
-        rect('#6b583f', 19, y + 1, 2, 1);
-    }
-    rect('#352d29', 3, 32, 20, 2);
-    rect('#61503a', 3, 31, 18, 1);
-    rect('#8b7253', 3, 17, 1, 1);
-    rect('#30272a', 22, 28, 1, 3);
-    rect('#211e23', 2, 34, 5, 3);
-    rect('#211e23', 19, 34, 5, 3);
-    rect('#564833', 3, 34, 3, 1);
-    rect('#483b2e', 20, 34, 3, 1);
-    return result;
+    return cached;
 }
 
-function debrisSprite() {
-    return pixelSprite([
-        '................',
-        '..........d.....',
-        '..s.......l.....',
-        '.dlh............',
-        '..dd.......ss...',
-        '...........ds...',
-        '......s.........',
-        '.....lhdd.......',
-        '.....sdd.....d..',
-        '.d....d.........',
-        '..........s.....',
-        '................',
-    ], { d: '#373031', s: '#51483b', l: '#766148', h: '#8c7351' });
-}
-
-function torchSprite() {
-    return pixelSprite([
-        ...Array(12).fill('...........'),
-        '..osososo..',
-        '..olmbsdo..',
-        '...obsdo...',
-        '....obo....',
-        '....olo....',
-        '....obo....',
-        '....obo....',
-        '....olo....',
-        '....obo....',
-        '....obo....',
-        '....obo....',
-        '...ooloo...',
-        '...osbso...',
-        '..oodbdoo..',
-        '..osoboso..',
-        '..osoboso..',
-        '.oo.ob.doo.',
-        '.os.obd.so.',
-        'oo..obd..do',
-        'o...obd...o',
-        '....olo....',
-        '....ooo....',
-    ], { o: '#1b191e', d: '#3c302b', s: '#4d4034', b: '#65503a', l: '#9b7950', m: '#876343' }, 11, 34);
-}
-
-function pillarSprite() {
-    // Kleine Torpfosten-Saeule (Kapitell, Schaft, Sockel) fuer die Seiten
-    // einer Tor-Oeffnung (z. B. am Ausgang) - warmer Farbton wie der
-    // Wandkranz, damit sie zur Wand passt statt fremd zu wirken.
-    const w = 14, h = 40;
-    const result = canvas(w, h);
-    const ctx = result.getContext('2d');
-    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
-
-    const outline = '#1c1512';
-    const base = '#3c2a1c';
-    const mid = '#6b4526';
-    const light = '#93602f';
-    const hi = '#c9843a';
-
-    // Kapitell: oben abgerundet, hell (Blickfang).
-    rect(outline, 2, 0, 10, 1);
-    rect(hi, 3, 1, 8, 1);
-    rect(outline, 1, 2, 1, 3);
-    rect(hi, 2, 2, 10, 3);
-    rect(outline, 12, 2, 1, 3);
-    rect(light, 2, 5, 10, 2);
-    rect(outline, 1, 7, 12, 1);
-
-    // Schaft: schmaler, mit Licht-/Schattenseite und ein paar Steinringen.
-    rect(outline, 3, 8, 1, 22);
-    rect(light, 4, 8, 3, 22);
-    rect(mid, 7, 8, 2, 22);
-    rect(base, 9, 8, 1, 22);
-    for (let y = 11; y < 30; y += 6) {
-        rect(outline, 3, y, 7, 1);
-    }
-
-    // Sockel: breiter, dunkler, verankert die Saeule im Boden.
-    rect(outline, 1, 30, 12, 1);
-    rect(mid, 2, 31, 10, 3);
-    rect(outline, 1, 34, 12, 1);
-    rect(base, 3, 35, 8, 2);
-    rect(outline, 2, 37, 10, 1);
-
-    return result;
-}
-
-function sackSprite() {
-    // Slumped burlap sack ("back" in config.yml) - tied neck, bulging body.
-    const w = 18, h = 20;
-    const result = canvas(w, h);
-    const ctx = result.getContext('2d');
-    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
-    const outline = '#2c2419', dark = '#4a3c26', mid = '#6b5738', light = '#8a7350', hi = '#a68d63', tie = '#1f1911';
-
-    rect(tie, 6, 0, 6, 1);
-    rect(outline, 5, 1, 8, 2);
-    rect(dark, 6, 2, 6, 1);
-    rect(outline, 3, 3, 12, 2);
-    rect(mid, 4, 3, 10, 2);
-    rect(outline, 2, 5, 14, 3);
-    rect(mid, 3, 5, 12, 3);
-    rect(light, 4, 5, 4, 2);
-    rect(outline, 1, 8, 16, 5);
-    rect(dark, 2, 8, 14, 5);
-    rect(mid, 3, 8, 6, 3);
-    rect(hi, 4, 9, 3, 1);
-    rect(outline, 1, 13, 16, 5);
-    rect(dark, 2, 13, 14, 5);
-    rect(mid, 9, 14, 6, 3);
-    rect(outline, 2, 18, 14, 2);
-    rect(dark, 3, 18, 12, 1);
-    return result;
-}
-
-function tableSprite() {
-    const w = 34, h = 26;
-    const result = canvas(w, h);
-    const ctx = result.getContext('2d');
-    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
-    const outline = '#241a12', wood = '#5a3d24', woodLight = '#7a5433', woodHi = '#9c7040', apron = '#3a2717', leg = '#1e150e';
-
-    rect(outline, 2, 0, 30, 2);
-    rect(outline, 0, 2, 34, 12);
-    rect(wood, 3, 1, 28, 12);
-    rect(woodLight, 3, 1, 28, 3);
-    rect(woodHi, 4, 1, 26, 1);
-    rect(outline, 3, 5, 28, 1);
-    rect(outline, 3, 9, 28, 1);
-    rect(outline, 2, 13, 30, 5);
-    rect(apron, 3, 14, 28, 3);
-    rect(leg, 4, 17, 3, 9);
-    rect(leg, 27, 17, 3, 9);
-    rect(outline, 3, 25, 5, 1);
-    rect(outline, 26, 25, 5, 1);
-    return result;
-}
-
-function sofaSprite() {
-    // Rounded, protruding armrests on visible feet (not flush with the seat)
-    // and a two-tone cushion top/front are what keep this reading as a soft
-    // couch rather than a hard chest.
-    const w = 38, h = 28;
-    const result = canvas(w, h);
-    const ctx = result.getContext('2d');
-    const rect = (color, x, y, width, height) => { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); };
-    const outline = '#241512', frame = '#3a2119', wood = '#5a3d24', woodHi = '#7a5433';
-    const fabric = '#5c2c28', fabricTop = '#7a3f38', fabricHi = '#9b544a', shade = '#3f211d';
-
-    // Backrest, rounded top.
-    rect(outline, 4, 0, 30, 2);
-    rect(fabric, 5, 1, 28, 1);
-    rect(outline, 2, 2, 34, 7);
-    rect(fabric, 3, 3, 32, 5);
-    rect(fabricTop, 3, 3, 32, 2);
-
-    // Rounded armrests, bulging past the seat, on their own wooden feet.
-    rect(outline, 0, 5, 7, 17);
-    rect(wood, 1, 6, 5, 15);
-    rect(woodHi, 1, 6, 5, 3);
-    rect(outline, 31, 5, 7, 17);
-    rect(wood, 32, 6, 5, 15);
-    rect(woodHi, 32, 6, 5, 3);
-
-    // Seat: two soft cushions (top face + shaded front) between the arms.
-    rect(outline, 6, 9, 26, 13);
-    rect(fabric, 7, 10, 11, 11);
-    rect(fabric, 20, 10, 11, 11);
-    rect(fabricHi, 8, 11, 6, 4);
-    rect(fabricHi, 21, 11, 6, 4);
-    rect(shade, 7, 18, 11, 3);
-    rect(shade, 20, 18, 11, 3);
-    rect(frame, 17, 10, 2, 11);
-
-    // Little wooden feet, peeking out below the arms.
-    rect(outline, 3, 22, 3, 5);
-    rect(wood, 3, 22, 2, 4);
-    rect(outline, 32, 22, 3, 5);
-    rect(wood, 32, 22, 2, 4);
-    return result;
-}
-
-function flameSprites() {
-    const palette = {
-        d: '#752c25', r: '#af3523', o: '#d54b24',
-        a: '#ec7529', y: '#f4a637', h: '#ffd05a',
-    };
-    // Four deliberately restrained silhouettes. Animation is only a few
-    // pixels wide; light modulation belongs to the renderer's light pass.
-    return [
-        ['.....r.....', '.....o.....', '....ra.....', '....ra.....', '..rroar....',
-            '..roaaar...', '.rooayayr..', '.roayhhyor.', '.oayhhharo.', '.rayhhyaro.',
-            '..oayyaro..', '..roayaor..', '...roaor...', '....ror....', '.....d.....', '...........'],
-        ['...........', '....r......', '....or.....', '....or.....', '....aar....',
-            '...rayar...', '..ooayyar..', '..oyhhyor..', '.rayhhharo.', '.oayhhyaro.',
-            '..oayyaro..', '..roayaor..', '...roaor...', '....ror....', '.....d.....', '...........'],
-        ['......r....', '.....ro....', '.....ar....', '.....ar....', '...rraar...',
-            '...oaayr...', '..roaayaro.', '..royhyaro.', '.oayhhharo.', '.rayhhyaro.',
-            '..oayyaro..', '..roayaor..', '...roaor...', '....ror....', '.....d.....', '...........'],
-        ['...........', '.....r.....', '.....or....', '....ra.....', '...roar....',
-            '...oayar...', '..roayayr..', '..royhhyro.', '.oayhhyaro.', '..ayhhhro..',
-            '..oayyaro..', '..roayaor..', '...roaor...', '....ror....', '.....d.....', '...........'],
-    ].map(rows => pixelSprite(rows, palette));
-}
-
-/** Create these assets once; each canvas can be reused throughout the map. */
+/** Synchronous access after loadDecorations() has resolved. */
 export function createDecorations() {
-    const pot = potSprite();
-    return {
-        pot,
-        pots: potCluster(pot),
-        grate: grateSprite(),
-        debris: debrisSprite(),
-        pillar: pillarSprite(),
-        torch: torchSprite(),
-        flames: flameSprites(),
-        // Config-driven funiture (config.yml); keys match its "type" values.
-        back: sackSprite(),
-        table: tableSprite(),
-        sofa: sofaSprite(),
-    };
+    if (!cached) throw new Error('Call loadDecorations() first');
+    return cached;
 }

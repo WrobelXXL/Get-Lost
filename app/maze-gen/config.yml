@@ -47,11 +47,6 @@ maze_level:
           dependencies: "border"
         - type: "back"
           probability: 20
-        - type: "table"
-          probability: 15
-          dependencies: "border"
-        - type: "sofa"
-          probability: 8
         - type: "pot"
           probability: 25
         - type: "grate"

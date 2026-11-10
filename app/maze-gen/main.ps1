@@ -585,9 +585,12 @@ function Read-MazeLevelConfigs {
         elseif ($current -and $line -match '^\s*floorr:\s*(.*)$') {
             $current.ColorScheme.Floorr = ConvertFrom-YamlScalar $Matches[1]
         }
-        elseif ($current -and $line -match '^\s*-\s*type:\s*(.*)$') {
+                elseif ($current -and $line -match '^\s*-\s*type:\s*(.*)$') {
             if ($currentItem) { $current.Furniture += $currentItem }
-            $currentItem = @{ Type = ConvertFrom-YamlScalar $Matches[1]; Probability = 0; Dependencies = 'corridor' }
+            $currentItem = @{ Type = ConvertFrom-YamlScalar $Matches[1]; Probability = 0; Dependencies = 'corridor'; Sprite = $null }
+        }
+        elseif ($currentItem -and $line -match '^\s*sprite:\s*(.*)$') {
+            $currentItem.Sprite = ConvertFrom-YamlScalar $Matches[1]
         }
         elseif ($currentItem -and $line -match '^\s*probability:\s*(\d+)\s*(?:#.*)?$') {
             $probabilityValue = [int]$Matches[1]
@@ -693,8 +696,8 @@ foreach ($levelConfig in $levelConfigs) {
         # zu $null statt [] werden.
         rows        = @($rows)
         colorScheme = [ordered]@{ wand = $levelConfig.ColorScheme.Wand; floorr = $levelConfig.ColorScheme.Floorr }
-        furniture   = @($levelConfig.Furniture | ForEach-Object {
-            [ordered]@{ type = $_.Type; probability = $_.Probability; dependencies = $_.Dependencies }
+                furniture   = @($levelConfig.Furniture | ForEach-Object {
+            [ordered]@{ type = $_.Type; sprite = $_.Sprite; probability = $_.Probability; dependencies = $_.Dependencies }
         })
         generatedAt = (Get-Date).ToString('o')
     }

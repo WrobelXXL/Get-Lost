@@ -19,37 +19,17 @@ canvas.style.width = `${canvas.width * SCALE}px`;
 canvas.style.height = `${canvas.height * SCALE}px`;
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
-const scene = renderMap(ctx, map, tileset, decor);
 
-// --- Player integration ------------------------------------------------
 // player-control.ps1 laeuft als eigener Service; die URL kommt aus
 // index.php (window.__PLAYER_API__), Fallback auf denselben Host:8081.
 const playerApi = window.__PLAYER_API__ || `${location.protocol}//${location.hostname}:8081`;
 const playerLevel = window.__PLAYER_LEVEL__ ?? 1;
-const cellSize = decor.cellSize ?? CELL_SIZE;
-const player = createPlayer({
-    map,
-    cellSize: tileset.cellSize,
-    scene,
-    spriteUrl: 'texture-1.png',
-    apiUrl: playerApi,
-    level: playerLevel,
-});
-const originalDrawLights = scene.drawLights.bind(scene);
-scene.drawLights = (time, visible) => {
-    player.update(time);
-    // Wipe the previous player sprite (and any collected-coin ghosts) by
-    // restoring those rectangles from the baked base layer inside the
-    // renderer. drawLights then repaints lamps/coins on top as usual.
-    player.hooks.restore((x, y, w, h) => scene.restoreRect(x, y, w, h));
-    originalDrawLights(time, visible);
-    // Paint the player on top of everything (lamps, coins, shadows).
-    player.hooks.draw(ctx, time);
-};
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;
+let scene = null;
+let player = null;
 
 function alignCanvas() {
     // Preserve safe centering, but avoid half-pixel origins in odd viewports.
@@ -69,15 +49,20 @@ function visibleArea() {
     };
 }
 
-// 10 fps is sufficient for slow torch animation; the coin spin/bob reads as
-// too sluggish at that rate, so it gets a brisker interval of its own.
-// Hidden tabs do no work either way.
-// Player needs smooth animation even without coins or lamps.
-const FRAME_INTERVAL_MS = 50;
+function drawFrame(time) {
+    if (!scene) return;
+    if (player) {
+        player.update(time);
+        player.hooks.restore((x, y, w, h) => scene.restoreRect(x, y, w, h));
+    }
+    scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
+    if (player) player.hooks.draw(ctx, time);
+}
 
 function frame(time) {
-    if (time - lastFrame >= FRAME_INTERVAL_MS) {
-        scene.drawLights(reducedMotion.matches ? 0 : time, visibleArea());
+    if (!scene) return;
+    if (time - lastFrame >= 50) {
+        drawFrame(time);
         lastFrame = time;
     }
     animation = requestAnimationFrame(frame);
@@ -85,7 +70,8 @@ function frame(time) {
 
 function syncAnimation() {
     cancelAnimationFrame(animation);
-    scene.drawLights(0, visibleArea());
+    if (!scene) return;
+    drawFrame(0);
     // Always animate: the player needs continuous frames for movement,
     // even when there are no lamps or coins on the map.
     if (!document.hidden) {
@@ -98,10 +84,25 @@ document.addEventListener('visibilitychange', syncAnimation);
 reducedMotion.addEventListener('change', syncAnimation);
 window.addEventListener('resize', () => {
     alignCanvas();
-    scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea());
+    if (scene) drawFrame(performance.now());
 }, { passive: true });
-window.addEventListener('scroll', () => scene.drawLights(reducedMotion.matches ? 0 : performance.now(), visibleArea()), { passive: true });
+window.addEventListener('scroll', () => {
+    if (scene) drawFrame(performance.now());
+}, { passive: true });
 window.addEventListener('pagehide', () => cancelAnimationFrame(animation));
 window.addEventListener('pageshow', syncAnimation);
-alignCanvas();
-syncAnimation();
+
+// Load sprites then render
+renderMap(ctx, map, tileset, decor).then(s => {
+    scene = s;
+    player = createPlayer({
+        map,
+        cellSize: tileset.cellSize,
+        scene,
+        spriteUrl: 'assets/furniture/pillar.png',
+        apiUrl: playerApi,
+        level: playerLevel,
+    });
+    alignCanvas();
+    syncAnimation();
+});

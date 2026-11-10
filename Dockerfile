@@ -11,8 +11,7 @@ COPY app/browser/ ./
 # liegen, damit game.js/mapRenderer.js sie unter "coins/coin-N.png" laden
 # kann.
 COPY public/coins/ ./coins/
-# Spielfigur-Textur (wird von player.js als spriteUrl geladen).
-COPY public/texture-1.png ./texture-1.png
+COPY public/assets/ ./assets/
 
 ENV MAP_DATA_DIR=/data
 
