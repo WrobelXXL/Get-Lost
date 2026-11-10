@@ -1,6 +1,7 @@
 // Map data and cell coordinates are unchanged; only the presentation animates.
 import { createTileset, CELL_SIZE } from './tileset.js';
 import { renderMap } from './mapRenderer.js';
+import { createPlayer } from './player.js';
 
 const SCALE = 1;
 const map = window.__MAP__;
@@ -19,6 +20,33 @@ canvas.style.height = `${canvas.height * SCALE}px`;
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const scene = renderMap(ctx, map, tileset, decor);
+
+// --- Player integration ------------------------------------------------
+// player-control.ps1 laeuft als eigener Service; die URL kommt aus
+// index.php (window.__PLAYER_API__), Fallback auf denselben Host:8081.
+const playerApi = window.__PLAYER_API__ || `${location.protocol}//${location.hostname}:8081`;
+const playerLevel = window.__PLAYER_LEVEL__ ?? 1;
+const cellSize = decor.cellSize ?? CELL_SIZE;
+const player = createPlayer({
+    map,
+    cellSize: tileset.cellSize,
+    scene,
+    spriteUrl: 'texture-1.png',
+    apiUrl: playerApi,
+    level: playerLevel,
+});
+const originalDrawLights = scene.drawLights.bind(scene);
+scene.drawLights = (time, visible) => {
+    player.update(time);
+    // Wipe the previous player sprite (and any collected-coin ghosts) by
+    // restoring those rectangles from the baked base layer inside the
+    // renderer. drawLights then repaints lamps/coins on top as usual.
+    player.hooks.restore((x, y, w, h) => scene.restoreRect(x, y, w, h));
+    originalDrawLights(time, visible);
+    // Paint the player on top of everything (lamps, coins, shadows).
+    player.hooks.draw(ctx, time);
+};
+
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 let animation = 0;
 let lastFrame = -Infinity;
@@ -44,7 +72,8 @@ function visibleArea() {
 // 10 fps is sufficient for slow torch animation; the coin spin/bob reads as
 // too sluggish at that rate, so it gets a brisker interval of its own.
 // Hidden tabs do no work either way.
-const FRAME_INTERVAL_MS = scene.coinCount ? 50 : 100;
+// Player needs smooth animation even without coins or lamps.
+const FRAME_INTERVAL_MS = 50;
 
 function frame(time) {
     if (time - lastFrame >= FRAME_INTERVAL_MS) {
@@ -57,7 +86,9 @@ function frame(time) {
 function syncAnimation() {
     cancelAnimationFrame(animation);
     scene.drawLights(0, visibleArea());
-    if (!document.hidden && !reducedMotion.matches && (scene.lampCount || scene.coinCount)) {
+    // Always animate: the player needs continuous frames for movement,
+    // even when there are no lamps or coins on the map.
+    if (!document.hidden) {
         lastFrame = -Infinity;
         animation = requestAnimationFrame(frame);
     }
