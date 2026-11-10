@@ -99,7 +99,7 @@ renderMap(ctx, map, tileset, decor).then(s => {
         map,
         cellSize: tileset.cellSize,
         scene,
-        spriteUrl: '/assets/furniture/pillar.png',
+        spriteUrl: '/texture-1.png',
         apiUrl: playerApi,
         level: playerLevel,
     });

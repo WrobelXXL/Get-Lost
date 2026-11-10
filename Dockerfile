@@ -12,6 +12,7 @@ COPY app/browser/ ./
 # kann.
 COPY public/coins/ ./coins/
 COPY public/assets/ ./assets/
+COPY public/texture-*.png ./
 
 ENV MAP_DATA_DIR=/data
 
