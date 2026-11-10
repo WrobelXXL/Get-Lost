@@ -1,21 +1,21 @@
 services:
-  maze-gen:
+  browser:
     build:
       context: .
-      dockerfile: app/maze-gen/Dockerfile
+      dockerfile: Dockerfile
     volumes:
       - map-data:/data
     environment:
-      MAP_OUTPUT_PATH: /data/map.json
-    restart: "no"
+      MAP_DATA_DIR: /data
+      PLAYER_API_URL: "http://localhost:8081"
+    ports:
+      - "8080:80"
+    restart: unless-stopped
 
   player-api:
     build:
       context: .
       dockerfile: app/maze-gen/Dockerfile
-    depends_on:
-      maze-gen:
-        condition: service_completed_successfully
     volumes:
       - map-data:/data:ro
     environment:
@@ -26,23 +26,17 @@ services:
     entrypoint: ["pwsh", "-NoProfile", "-File", "player-control.ps1"]
     restart: unless-stopped
 
-  browser:
+  maze-gen:
     build:
       context: .
-      dockerfile: Dockerfile
-    depends_on:
-      maze-gen:
-        condition: service_completed_successfully
-      player-api:
-        condition: service_started
+      dockerfile: app/maze-gen/Dockerfile
     volumes:
-      - map-data:/data:ro
+      - map-data:/data
     environment:
-      MAP_DATA_DIR: /data
-      PLAYER_API_URL: "http://localhost:8081"
-    ports:
-      - "8080:80"
-    restart: unless-stopped
+      MAP_OUTPUT_PATH: /data/map.json
+    restart: "no"
+    profiles:
+      - generate
 
 volumes:
   map-data:

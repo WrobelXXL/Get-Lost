@@ -2,10 +2,15 @@
 // Sprite paths come from config.yml via the furniture list in map JSON.
 // Internal sprites (pillar, flames) are always loaded from assets/furniture/.
 
-const ASSET_PATH = 'assets/furniture';
+const ASSET_PATH = '/assets/furniture';
 
-// Internal sprites that are always needed (not config-driven).
-const INTERNAL_SPRITES = ['pillar', 'flame-0', 'flame-1', 'flame-2', 'flame-3'];
+// Sprites that are always loaded from assets/furniture/.
+// Config-driven sprites with a "sprite" path override these defaults.
+const BUILTIN_SPRITES = [
+    'pot', 'small-pot', 'pots', 'grate', 'debris',
+    'torch', 'pillar', 'back', 'table', 'sofa',
+    'flame-0', 'flame-1', 'flame-2', 'flame-3',
+];
 
 function loadImageAsCanvas(src) {
     return new Promise((resolve, reject) => {
@@ -38,18 +43,22 @@ export async function loadDecorations(furniture = []) {
 
     const sprites = {};
 
-    // Load internal sprites (always needed)
-    for (const name of INTERNAL_SPRITES) {
-        sprites[name] = await loadImageAsCanvas(`${ASSET_PATH}/${name}.png`);
+    // Load all built-in sprites from assets/furniture/
+    for (const name of BUILTIN_SPRITES) {
+        try {
+            sprites[name] = await loadImageAsCanvas(`${ASSET_PATH}/${name}.png`);
+        } catch (e) {
+            console.warn(`Built-in sprite "${name}" not found, skipping.`);
+        }
     }
 
-    // Load config-driven sprites
+    // Load/override with config-driven sprites (sprite field from config.yml)
     for (const entry of furniture) {
-        if (!entry.sprite || sprites[entry.type]) continue;
+        if (!entry.sprite) continue;
         try {
             sprites[entry.type] = await loadImageAsCanvas(entry.sprite);
         } catch (e) {
-            console.warn(`Sprite for "${entry.type}" not found at ${entry.sprite}, skipping.`);
+            console.warn(`Sprite for "${entry.type}" not found at ${entry.sprite}, using built-in.`);
         }
     }
 

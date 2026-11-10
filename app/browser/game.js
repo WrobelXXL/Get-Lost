@@ -99,10 +99,16 @@ renderMap(ctx, map, tileset, decor).then(s => {
         map,
         cellSize: tileset.cellSize,
         scene,
-        spriteUrl: 'assets/furniture/pillar.png',
+        spriteUrl: '/assets/furniture/pillar.png',
         apiUrl: playerApi,
         level: playerLevel,
     });
     alignCanvas();
     syncAnimation();
+}).catch(err => {
+    console.error('renderMap failed:', err);
+    document.body.style.color = '#e8dcc0';
+    document.body.style.font = '16px monospace';
+    document.body.style.padding = '20px';
+    document.body.textContent = 'Fehler beim Laden: ' + err.message;
 });

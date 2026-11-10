@@ -60,7 +60,7 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
     });
     document.body.appendChild(hud);
     function updateHud() {
-        hud.textContent = `Schlüssel: ${hasKey ? 'ja' : 'nein'}   Münzen: ${coins}/${total}` +
+        hud.textContent = `Schl├╝ssel: ${hasKey ? 'ja' : 'nein'}   M├╝nzen: ${coins}/${total}` +
             (message ? `\n${message}` : '');
     }
     updateHud();

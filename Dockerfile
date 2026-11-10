@@ -17,4 +17,4 @@ ENV MAP_DATA_DIR=/data
 
 EXPOSE 80
 
-CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/html"]
+CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/html", "router.php"]

@@ -10,7 +10,7 @@ export function loadCoinFrames() {
     if (!cachedFrames) {
         cachedFrames = Array.from({ length: FRAME_COUNT }, (_, i) => {
             const image = new Image();
-            image.src = `coins/coin-${i + 1}.png`;
+            image.src = `/coins/coin-${i + 1}.png`;
             return image;
         });
     }

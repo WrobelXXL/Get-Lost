@@ -15,3 +15,11 @@ docker compose run --rm maze-gen
 docker compose run --rm maze-gen pwsh -NoProfile -File main.ps1 -Level 1
 docker compose run --rm maze-gen pwsh -NoProfile -File main.ps1 -Level 2
 docker compose run --rm maze-gen pwsh -NoProfile -File main.ps1 -Level 3
+
+
+
+
+docker compose run --rm maze-gen
+
+
+http://localhost:8080/single-player/
