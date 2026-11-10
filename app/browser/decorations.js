@@ -1,16 +1,13 @@
-// Dungeon decoration sprites, loaded from PNG files in assets/furniture/.
-// Each sprite is drawn to an offscreen canvas at native pixel resolution;
-// the renderer draws them at integer positions with smoothing disabled.
+// Dungeon decoration sprites, loaded from PNG files.
+// Sprite paths come from config.yml via the furniture list in map JSON.
+// Internal sprites (pillar, flames) are always loaded from assets/furniture/.
 
 const ASSET_PATH = 'assets/furniture';
 
-const SPRITE_FILES = [
-    'pot', 'small-pot', 'pots', 'grate', 'debris',
-    'torch', 'pillar', 'back', 'table', 'sofa',
-    'flame-0', 'flame-1', 'flame-2', 'flame-3',
-];
+// Internal sprites that are always needed (not config-driven).
+const INTERNAL_SPRITES = ['pillar', 'flame-0', 'flame-1', 'flame-2', 'flame-3'];
 
-function loadImage(name) {
+function loadImageAsCanvas(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
@@ -22,39 +19,51 @@ function loadImage(name) {
             ctx.drawImage(img, 0, 0);
             resolve(cvs);
         };
-        img.onerror = () => reject(new Error(`Failed to load ${name}.png`));
-        img.src = `${ASSET_PATH}/${name}.png`;
+        img.onerror = () => reject(new Error(`Failed to load sprite: ${src}`));
+        img.src = src;
     });
 }
 
 let cached = null;
 
-/** Load all decoration sprites from assets/furniture/. Returns a Promise. */
-export async function loadDecorations() {
+/**
+ * Load all decoration sprites. Furniture entries with a "sprite" path
+ * are loaded from that path; internal sprites (pillar, flames) are
+ * always loaded from assets/furniture/.
+ *
+ * @param {Array} furniture - The furniture array from map JSON (config.yml).
+ */
+export async function loadDecorations(furniture = []) {
     if (cached) return cached;
 
-    const entries = await Promise.all(
-        SPRITE_FILES.map(async name => [name, await loadImage(name)])
-    );
-    const sprites = Object.fromEntries(entries);
+    const sprites = {};
+
+    // Load internal sprites (always needed)
+    for (const name of INTERNAL_SPRITES) {
+        sprites[name] = await loadImageAsCanvas(`${ASSET_PATH}/${name}.png`);
+    }
+
+    // Load config-driven sprites
+    for (const entry of furniture) {
+        if (!entry.sprite || sprites[entry.type]) continue;
+        try {
+            sprites[entry.type] = await loadImageAsCanvas(entry.sprite);
+        } catch (e) {
+            console.warn(`Sprite for "${entry.type}" not found at ${entry.sprite}, skipping.`);
+        }
+    }
 
     cached = {
-        pot: sprites['pot'],
-        pots: sprites['pots'],
-        grate: sprites['grate'],
-        debris: sprites['debris'],
         pillar: sprites['pillar'],
-        torch: sprites['torch'],
         flames: [
             sprites['flame-0'],
             sprites['flame-1'],
             sprites['flame-2'],
             sprites['flame-3'],
         ],
-        // Config-driven funiture (config.yml); keys match its "type" values.
-        back: sprites['back'],
-        table: sprites['table'],
-        sofa: sprites['sofa'],
+        // All config-driven sprites are accessible by their type name.
+        // mapRenderer.js looks up sprites[entry.type] for each furniture entry.
+        ...sprites,
     };
     return cached;
 }
