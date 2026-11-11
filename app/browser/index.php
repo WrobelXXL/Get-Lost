@@ -1,5 +1,7 @@
 <?php
 // Get-Lost - Startbildschirm
+// Session auf Level 1 zuruecksetzen wenn man zum Start kommt
+$_SESSION['current_level'] = 1;
 $playerApiUrl = getenv('PLAYER_API_URL') ?: 'http://localhost:8081';
 ?>
 <!doctype html>
@@ -327,15 +329,10 @@ $playerApiUrl = getenv('PLAYER_API_URL') ?: 'http://localhost:8081';
 
             // 5. Spiel-Daten laden
             try {
-                const mapRes = await fetch('/single-player/?level=1&raw=1');
-                if (!mapRes.ok) throw new Error('Map nicht ladbar');
-
-                // Spiel im Hintergrund aufbauen
-                window.location.href = '/single-player/?level=1';
+                window.location.href = '/single-player/';
             } catch (err) {
                 console.error('Game load failed:', err);
-                // Fallback: direkt navigieren
-                window.location.href = '/single-player/?level=1';
+                window.location.href = '/single-player/';
             }
         });
     </script>
