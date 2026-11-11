@@ -209,6 +209,22 @@ try {
                     Send-Response -Context $ctx -Object (ConvertTo-StateObject -Game $game -Moved $moved)
                 }
             }
+            elseif ($method -eq 'POST' -and $route -eq '/generate') {
+                # Alle Level neu generieren
+                $mainScript = Join-Path $PSScriptRoot 'main.ps1'
+                if (-not (Test-Path $mainScript)) {
+                    Send-Response -Context $ctx -Object @{ error = 'main.ps1 nicht gefunden' } -Status 500
+                } else {
+                    try {
+                        $env:MAP_OUTPUT_PATH = Join-Path $MapDir 'map.json'
+                        & pwsh -NoProfile -File $mainScript 2>&1 | ForEach-Object { Write-Host $_ }
+                        $script:Games = @{}
+                        Send-Response -Context $ctx -Object @{ status = 'ok'; message = 'Alle Level generiert' }
+                    } catch {
+                        Send-Response -Context $ctx -Object @{ error = $_.Exception.Message } -Status 500
+                    }
+                }
+            }
             elseif ($method -eq 'POST' -and $route -eq '/reset') {
                 $path = Get-MapFile -Level $level
                 if ($path) { $Games.Remove($path) }
