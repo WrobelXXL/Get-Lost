@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: app/maze-gen/Dockerfile
     volumes:
-      - map-data:/data:ro
+      - map-data:/data
     environment:
       MAP_OUTPUT_PATH: /data/map.json
       PLAYER_API_PORT: "8081"
@@ -36,7 +36,7 @@ services:
       MAP_OUTPUT_PATH: /data/map.json
     restart: "no"
     profiles:
-      - generate
+      - tools
 
 volumes:
   map-data:

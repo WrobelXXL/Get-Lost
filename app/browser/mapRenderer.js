@@ -320,7 +320,7 @@ function placeDetails(ctx, map, t, sprites, furniture = []) {
 // instead of a bare hole in the wall. Direction comes straight from the
 // real map data (which boundary ring cell next to the mark is open),
 // not from assumptions about layout.
-function findGate(map, mark) {
+export function findGate(map, mark) {
     const ch = (x, y) => map[y]?.[x];
     const lastRow = map.length - 1;
     outer:

@@ -427,8 +427,40 @@ function Write-MazeDebugView {
 # vorgesehenen) Eigenschaften der Cell-Objekte, die Klasse selbst bleibt
 # unangetastet.
 # ------------------------------------------------------------
+# Auf welcher Seite die Aussenwand an einer Randzelle geoeffnet wird.
+# Gleiche Reihenfolge wie in ConvertTo-TileRows (X zuerst, dann Y), damit
+# Eckzellen eindeutig einer Seite zugeordnet sind.
+function Get-EdgeSide {
+    param([Parameter(Mandatory)][Maze]$Maze, [Parameter(Mandatory)]$Cell)
+
+    if ($Cell.X -eq 0) { return 'west' }
+    if ($Cell.X -eq $Maze.Width - 1) { return 'east' }
+    if ($Cell.Y -eq 0) { return 'north' }
+    if ($Cell.Y -eq $Maze.Height - 1) { return 'south' }
+    return $null
+}
+
+function Get-OppositeSide {
+    param([string]$Side)
+
+    switch ($Side) {
+        'north' { 'south' }
+        'south' { 'north' }
+        'west'  { 'east' }
+        'east'  { 'west' }
+        default { $null }
+    }
+}
+
+# -EntranceSide (optional): Eingang MUSS auf dieser Seite liegen. Wird fuer
+# den nahtlosen Levelwechsel benutzt - verlaesst man Level N z. B. nach
+# Osten, betritt man Level N+1 von Westen, sodass die Figur im Browser in
+# einer geraden Linie von einer Karte in die naechste laufen kann.
 function Set-EdgeEntranceAndExit {
-    param([Parameter(Mandatory)][Maze]$Maze)
+    param(
+        [Parameter(Mandatory)][Maze]$Maze,
+        [string]$EntranceSide
+    )
 
     $edgeCells = @()
     for ($y = 0; $y -lt $Maze.Height; $y++) {
@@ -449,7 +481,14 @@ function Set-EdgeEntranceAndExit {
     $Maze.Entrance.HasPlayer = $false
     $Maze.Exit.IsExit = $false
 
-    $entranceCell = $candidates | Get-Random
+    $entranceCandidates = $candidates
+    if ($EntranceSide) {
+        $sideCells = @($candidates | Where-Object { (Get-EdgeSide -Maze $Maze -Cell $_) -eq $EntranceSide })
+        # Nur einschraenken, wenn es auf der Seite ueberhaupt passende Zellen
+        # gibt (bei sehr schmalen Karten evtl. nicht) - sonst wie bisher zufaellig.
+        if ($sideCells.Count -gt 0) { $entranceCandidates = $sideCells }
+    }
+    $entranceCell = $entranceCandidates | Get-Random
 
     # Ausgang soll nie dicht neben dem Eingang liegen - nur Randzellen
     # jenseits eines Mindestabstands (halbe Diagonale der Maze) zulassen.
@@ -651,6 +690,9 @@ $writeSingleFile = $levelConfigs.Count -eq 1
 $baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseOutputPath)
 $extension = [System.IO.Path]::GetExtension($baseOutputPath)
 
+# Seite, auf der das vorherige Level verlassen wurde ($null beim ersten Level).
+$previousExitSide = $null
+
 foreach ($levelConfig in $levelConfigs) {
     # Ein explizites -Seed (auch -1) hat Vorrang vor der Level-Konfiguration.
     $currentSeed = if ($PSBoundParameters.ContainsKey('Seed')) { $Seed } else { $levelConfig.Seed }
@@ -663,7 +705,8 @@ foreach ($levelConfig in $levelConfigs) {
     $effectiveHeight = $levelConfig.Height * $tier.Scale
 
     $maze = [Maze]::new($effectiveWidth, $effectiveHeight, $levelConfig.Complex, $levelConfig.Coins)
-    Set-EdgeEntranceAndExit -Maze $maze
+    Set-EdgeEntranceAndExit -Maze $maze -EntranceSide (Get-OppositeSide $previousExitSide)
+    $previousExitSide = Get-EdgeSide -Maze $maze -Cell $maze.Exit
     $rows = ConvertTo-TileRows -Maze $maze
 
     # Nur eine Log-Anzeige - falls das aus irgendeinem Grund schiefgeht, soll

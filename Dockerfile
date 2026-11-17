@@ -1,6 +1,6 @@
 FROM alpine:3.20
 
-RUN apk add --no-cache php82 \
+RUN apk add --no-cache php82 php82-session \
     && ln -s /usr/bin/php82 /usr/bin/php
 
 WORKDIR /var/www/html

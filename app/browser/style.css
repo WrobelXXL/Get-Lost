@@ -25,7 +25,10 @@ body {
     background: #09080e;
 }
 
-canvas#map {
+/* .map-canvas: auch die Karte des vorherigen Levels behaelt waehrend der
+   Uebergangsanimation (game.js) die scharfe Pixeldarstellung. */
+canvas#map,
+canvas.map-canvas {
     display: block;
     position: relative;
     image-rendering: crisp-edges;

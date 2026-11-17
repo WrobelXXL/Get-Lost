@@ -20,9 +20,51 @@ const DIRS = {
     ArrowRight: 'right', KeyD: 'right',
 };
 
-export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', apiUrl, level = 1 }) {
+/**
+ * Zeichnet die Spielfigur (inkl. Bodenschatten) zentriert auf (x, y).
+ * Wird von der Figur selbst UND von der Levelwechsel-Animation in game.js
+ * benutzt, damit die Figur in beiden Faellen exakt gleich aussieht.
+ */
+export function drawFigure(ctx, img, x, y, t, facing = 1, hop = 0) {
+    const px = Math.round(x);
+    ctx.save();
+    // weicher Schatten am Boden
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(px, Math.round(y + t * 0.32), t * 0.26, t * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.imageSmoothingEnabled = !PIXEL_ART;
+    ctx.translate(px, Math.round(y - hop));
+    if (FLIP_ON_LEFT && facing < 0) ctx.scale(-1, 1);
+    if (img.complete && img.naturalWidth) {
+        const k = Math.min(t * SPRITE_FIT / img.naturalWidth, t * SPRITE_FIT / img.naturalHeight);
+        const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+        ctx.drawImage(img, -Math.round(w / 2), -Math.round(h / 2), w, h);
+    } else {
+        // Platzhalter, solange das PNG nicht geladen ist (oder der Pfad nicht stimmt)
+        ctx.fillStyle = '#4dd0e1';
+        ctx.beginPath(); ctx.arc(0, 0, t * 0.25, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+}
+
+// hidden: Figur wird (noch) nicht gezeichnet und nimmt keine Eingaben an -
+//         z. B. waehrend die Levelwechsel-Animation sie ins neue Level laufen laesst.
+// onWon:  wird genau einmal aufgerufen, sobald der Server den Sieg meldet.
+export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', apiUrl, level = 1, hidden: startHidden = false, onWon = null }) {
     const t = cellSize;
     const api = apiUrl.replace(/\/$/, '');
+    let hidden = startHidden;
+    let destroyed = false;
+    let wonNotified = false;
+    function notifyWon() {
+        if (wonNotified || destroyed) return;
+        wonNotified = true;
+        if (onWon) onWon();
+    }
 
     // Nur fuer die Anzeige des Schluessels: seine Zelle steht in der Karte.
     let keyCell = null;
@@ -57,6 +99,7 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
         position: 'fixed', top: '8px', left: '8px', zIndex: '10', padding: '6px 10px',
         font: '14px/1.4 monospace', color: '#e8dcc0', background: 'rgba(9,9,13,.75)',
         borderRadius: '4px', pointerEvents: 'none', whiteSpace: 'pre',
+        display: hidden ? 'none' : '',
     });
     document.body.appendChild(hud);
     function updateHud() {
@@ -98,15 +141,19 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
     }
 
     async function loadState() {
+        if (destroyed) return;
         try {
             const s = await api_(`/state?level=${level}`);
+            if (destroyed) return;
             cell.x = pos.x = s.x;
             cell.y = pos.y = s.y;
             won = stop = s.won;
             applyItems(s);
             ready = true;
             dirty = true;
+            if (s.won) notifyWon();
         } catch (err) {
+            if (destroyed) return;
             message = `Spielserver nicht erreichbar (${api})`;
             updateHud();
             setTimeout(loadState, RETRY_MS);
@@ -118,7 +165,12 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
         requesting = true;
         try {
             const s = await api_(`/move?level=${level}&dir=${dir}`, 'POST');
-            if (s.won) stop = true;
+            if (s.won) {
+                stop = true;
+                // Sofort melden (nicht erst nach der Schritt-Animation), damit
+                // game.js das naechste Level schon im Hintergrund laden kann.
+                notifyWon();
+            }
             if (s.moved) {
                 const dx = s.x - cell.x;
                 if (dx !== 0) facing = Math.sign(dx);
@@ -140,16 +192,19 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
     }
 
     // --- Eingabe --------------------------------------------------
-    window.addEventListener('keydown', e => {
+    function onKeyDown(e) {
         if (!(e.code in DIRS) || e.ctrlKey || e.metaKey || e.altKey) return;
         e.preventDefault();
         if (!held.includes(e.code)) held.push(e.code);
-    });
-    window.addEventListener('keyup', e => {
+    }
+    function onKeyUp(e) {
         const i = held.indexOf(e.code);
         if (i >= 0) held.splice(i, 1);
-    });
-    window.addEventListener('blur', () => { held.length = 0; });
+    }
+    function onBlur() { held.length = 0; }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
 
     function update(time) {
         if (!ready) return;
@@ -167,7 +222,7 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
                 if (s.won) won = true;
             }
         }
-        if (!move && !requesting && !stop && held.length && time >= nextRequestAt) {
+        if (!move && !requesting && !stop && !hidden && held.length && time >= nextRequestAt) {
             requestMove(DIRS[held[held.length - 1]]);
         }
     }
@@ -194,30 +249,7 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
         const c = centerPx(pos.x, pos.y);
         const p = move ? Math.min(1, Math.max(0, (time - move.start) / MOVE_MS)) : 0;
         const hop = move ? Math.abs(Math.sin(p * Math.PI)) * t * 0.06 : 0;
-        const x = Math.round(c.x), y = Math.round(c.y - hop);
-
-        ctx.save();
-        // weicher Schatten am Boden
-        ctx.globalAlpha = 0.3;
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.ellipse(x, Math.round(c.y + t * 0.32), t * 0.26, t * 0.08, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-
-        ctx.imageSmoothingEnabled = !PIXEL_ART;
-        ctx.translate(x, y);
-        if (FLIP_ON_LEFT && facing < 0) ctx.scale(-1, 1);
-        if (img.complete && img.naturalWidth) {
-            const k = Math.min(t * SPRITE_FIT / img.naturalWidth, t * SPRITE_FIT / img.naturalHeight);
-            const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
-            ctx.drawImage(img, -Math.round(w / 2), -Math.round(h / 2), w, h);
-        } else {
-            // Platzhalter, solange das PNG nicht geladen ist (oder der Pfad nicht stimmt)
-            ctx.fillStyle = '#4dd0e1';
-            ctx.beginPath(); ctx.arc(0, 0, t * 0.25, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.restore();
+        drawFigure(ctx, img, c.x, c.y, t, facing, hop);
         lastRect = rectAround(c, t * 0.5 + 3);
     }
 
@@ -232,15 +264,37 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
         },
         draw(ctx, time) {
             if (keyCell && !hasKey) drawKey(ctx, time);
-            if (ready) drawPlayer(ctx, time);
+            if (ready && !hidden) drawPlayer(ctx, time);
+            else lastRect = null;
         },
     };
 
     return {
         hooks,
         update,
+        img,
         consumeDirty() { const d = dirty; dirty = false; return d; },
         pixelPosition() { return centerPx(pos.x, pos.y); },
         get keyVisible() { return !!keyCell && !hasKey; },
+        get facing() { return facing; },
+        get isMoving() { return !!move; },
+        get isReady() { return ready; },
+        /** Figur zeigen/verstecken (Levelwechsel-Animation uebernimmt solange). */
+        setHidden(value) {
+            hidden = !!value;
+            hud.style.display = hidden ? 'none' : '';
+            if (hidden) held.length = 0;
+            dirty = true;
+        },
+        /** Figur endgueltig abbauen: Tasten-Listener + HUD entfernen. */
+        destroy() {
+            destroyed = true;
+            stop = true;
+            held.length = 0;
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+            window.removeEventListener('blur', onBlur);
+            hud.remove();
+        },
     };
 }
