@@ -13,20 +13,27 @@ maze_level:
         floorr: "#73533b"
       funiture:
         - type: "lamp"
+          image: "public/assets/furniture/torch.png"
           probability: 60
           dependencies: "border"
         - type: "back"
+          image: "public/assets/furniture/back.png"
           probability: 50
         - type: "table"
+          image: "public/assets/furniture/table.png"
           probability: 50
           dependencies: "border"
         - type: "sofa"
+          image: "public/assets/furniture/sofa.png"
           probability: 0
         - type: "pot"
+          image: "public/assets/furniture/pot.png"
           probability: 50
         - type: "grate"
+          image: "public/assets/furniture/grate.png"
           probability: 30
         - type: "debris"
+          image: "public/assets/furniture/debris.png"
           probability: 40
 
   - level: 2
@@ -43,15 +50,20 @@ maze_level:
         floorr: "#445588"
       funiture:
         - type: "lamp"
+          image: "public/assets/furniture/torch.png"
           probability: 60
           dependencies: "border"
         - type: "back"
+          image: "public/assets/furniture/back.png"
           probability: 20
         - type: "pot"
+          image: "public/assets/furniture/pot.png"
           probability: 25
         - type: "grate"
+          image: "public/assets/furniture/grate.png"
           probability: 10
         - type: "debris"
+          image: "public/assets/furniture/debris.png"
           probability: 15
 
   - level: 3
@@ -68,18 +80,25 @@ maze_level:
         floorr: "#4a3861"
       funiture:
         - type: "lamp"
+          image: "public/assets/furniture/torch.png"
           probability: 60
           dependencies: "border"
         - type: "back"
+          image: "public/assets/furniture/back.png"
           probability: 20
         - type: "table"
+          image: "public/assets/furniture/table.png"
           probability: 15
           dependencies: "border"
         - type: "sofa"
+          image: "public/assets/furniture/sofa.png"
           probability: 8
         - type: "pot"
+          image: "public/assets/furniture/pot.png"
           probability: 25
         - type: "grate"
+          image: "public/assets/furniture/grate.png"
           probability: 10
         - type: "debris"
+          image: "public/assets/furniture/debris.png"
           probability: 15

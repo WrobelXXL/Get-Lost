@@ -381,7 +381,7 @@ function ConvertTo-TileRows {
 }
 
 # ------------------------------------------------------------
-# ASCII-Vorschau fuers Docker-Log (z. B. "docker compose logs maze-gen").
+# ASCII-Vorschau fuer die Konsole (beim direkten Aufruf von main.ps1).
 # Bewusst NICHT $maze.Draw() aufrufen: Draw() startet mit Clear-Host, das
 # in einem Container ohne TTY mit "The handle is invalid" abstuerzt und
 # damit den ganzen maze-gen-Service scheitern liesse. Diese Funktion
@@ -560,9 +560,9 @@ function ConvertFrom-YamlScalar {
 # (mehr, schmalere Gaenge auf derselben Kartenflaeche). Damit die Karte im
 # Browser dabei trotzdem gleich gross bleibt, muss dort mit halber
 # Zellgroesse gerendert werden - "cellSize" wird deshalb mit in die
-# generierte map-N.json geschrieben (siehe app/browser/tileset.js:
+# generierte map-N.json geschrieben (siehe app/wpf/tileset.ps1:
 # CELL_SIZE ist dessen Normalwert/Referenz fuer 64px-Zellen, dieselben 64
-# stehen auch als Referenzgroesse in app/browser/mapRenderer.js).
+# stehen auch als Referenzgroesse in app/wpf/mapRenderer.ps1).
 # ------------------------------------------------------------
 function Get-MazeResolutionTier {
     param([Parameter(Mandatory)][int]$Complex)
@@ -628,8 +628,13 @@ function Read-MazeLevelConfigs {
             if ($currentItem) { $current.Furniture += $currentItem }
             $currentItem = @{ Type = ConvertFrom-YamlScalar $Matches[1]; Probability = 0; Dependencies = 'corridor'; Sprite = $null }
         }
-        elseif ($currentItem -and $line -match '^\s*sprite:\s*(.*)$') {
-            $currentItem.Sprite = ConvertFrom-YamlScalar $Matches[1]
+        elseif ($currentItem -and $line -match '^\s*(?:sprite|image):\s*(.*)$') {
+            # "image" und "sprite" sind gleichwertig. Ein Repo-Pfad wie
+            # public/assets/furniture/x.png wird zur Browser-URL
+            # /assets/furniture/x.png (Docker kopiert public/assets/ nach assets/).
+            $spritePath = (ConvertFrom-YamlScalar $Matches[1]) -replace '\\', '/'
+            if ($spritePath -match '^(?:\./)?public/(.*)$') { $spritePath = '/' + $Matches[1] }
+            $currentItem.Sprite = $spritePath
         }
         elseif ($currentItem -and $line -match '^\s*probability:\s*(\d+)\s*(?:#.*)?$') {
             $probabilityValue = [int]$Matches[1]
