@@ -358,15 +358,67 @@ function findCoins(map, t) {
     return coins;
 }
 
+// Tor als ganzes Bild: public/assets/gate-horizontal.png (oben/unten)
+// bzw. gate-vertical.png (links/rechts), geschlossen *_closed_new.png.
+// Gezeichnet fuer 64px-Zellen und bei kleineren Zellen mitskaliert.
+//  - horizontal: mittig ueber der Oeffnung, an der oberen/unteren Kante
+//  - vertikal:   Bild-Unterkante = Unterkante der Oeffnung, an der linken/rechten Kante
+// Liefert Bild + Zielrechteck, oder null (Bild fehlt -> Saeulen-Fallback).
+function gateLayout(map, t, sprites, gate, closed = false) {
+    const horizontal = gate.side === 'north' || gate.side === 'south';
+    const open = horizontal ? sprites.gateHorizontal : sprites.gateVertical;
+    const shut = horizontal ? sprites.gateHorizontalClosed : sprites.gateVerticalClosed;
+    const img = closed ? shut : open;
+    if (!img) return null;
+
+    // px/py = die markierte Zelle selbst (immer eine Kachel von der
+    // wahren Kante entfernt, siehe Set-EdgeEntranceAndExit in main.ps1).
+    // Die Oeffnung selbst liegt eine Kachel weiter aussen - das Tor soll
+    // genau an dieser wahren Kante stehen (an der Schwelle zur Dunkelheit).
+    const px = gate.x * t, py = gate.y * t;
+    const mapWidthPx = map[0].length * t, mapHeightPx = map.length * t;
+    const s = t / CELL_SIZE;
+    const w = Math.round(img.width * s), h = Math.round(img.height * s);
+    let x, y;
+    if (gate.side === 'north') { x = px + t / 2 - w / 2; y = 0; }
+    else if (gate.side === 'south') { x = px + t / 2 - w / 2; y = mapHeightPx - h; }
+    else if (gate.side === 'west') { x = 0; y = py + t - h; }
+    else { x = mapWidthPx - w; y = py + t - h; }
+    return { img, x: Math.round(x), y: Math.round(y), w, h, smooth: s < 1 };
+}
+
+function drawGateImage(ctx, layout, offsetX = 0, offsetY = 0) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = layout.smooth;
+    ctx.drawImage(layout.img, layout.x - offsetX, layout.y - offsetY, layout.w, layout.h);
+    ctx.restore();
+}
+
+// Ausgangstor geschlossen zeichnen und sich merken, was darunter lag, damit
+// openExitGate() es spaeter ohne kompletten Neu-Render oeffnen kann.
+function placeExitGate(ctx, map, t, sprites) {
+    const gate = findGate(map, 'A');
+    const open = gate && gateLayout(map, t, sprites, gate, false);
+    const shut = gate && gateLayout(map, t, sprites, gate, true);
+    if (!open || !shut) { placeGate(ctx, map, t, sprites, 'A'); return null; }
+
+    const { width, height } = ctx.canvas;
+    const x = Math.max(0, Math.min(open.x, shut.x)), y = Math.max(0, Math.min(open.y, shut.y));
+    const w = Math.min(width, Math.max(open.x + open.w, shut.x + shut.w)) - x;
+    const h = Math.min(height, Math.max(open.y + open.h, shut.y + shut.h)) - y;
+    const under = canvas(w, h);
+    under.getContext('2d').drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
+    drawGateImage(ctx, shut);
+    return { x, y, w, h, under, open };
+}
+
 function placeGate(ctx, map, t, sprites, mark) {
     const gate = findGate(map, mark);
     if (!gate) return;
 
-    // px/py = die markierte Zelle selbst (immer eine Kachel von der
-    // wahren Kante entfernt, siehe Set-EdgeEntranceAndExit in main.ps1).
-    // Die Oeffnung selbst liegt eine Kachel weiter aussen - die Saeulen
-    // sollen genau an dieser wahren Kante stehen (an der Schwelle zur
-    // Dunkelheit), nicht eine Kachel zu weit im Raum.
+    const layout = gateLayout(map, t, sprites, gate);
+    if (layout) { drawGateImage(ctx, layout); return; }
+
     const px = gate.x * t, py = gate.y * t;
     const mapWidthPx = map[0].length * t, mapHeightPx = map.length * t;
     const pillar = sprites.pillar;
@@ -451,6 +503,7 @@ function drawAmbientShadows(ctx, mask, lamps) {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(shadow, 0, 0, width, height);
     ctx.restore();
+    return shadow;
 }
 
 // Bake illumination into the real material colors. Animation only redraws
@@ -491,22 +544,28 @@ function lightPatch(base, mask, lamp) {
 export async function renderMap(ctx, map, tileset, decor = {}) {
     const { colorScheme = {}, furniture = [] } = decor;
     const { width, height } = ctx.canvas;
+    // ERST alle Bilder laden, DANN in einem Rutsch zeichnen - sonst zeigt
+    // der Browser zwischendurch eine halbfertige Karte (nur Boden + Waende).
+    const coinFrames = loadCoinFrames();
+    await Promise.all([
+        loadDecorations(furniture),
+        ...coinFrames.map(img => img.decode().catch(() => {})),
+    ]);
+    const sprites = createDecorations();
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = PALETTE.void;
     ctx.fillRect(0, 0, width, height);
     drawGround(ctx, map, tileset);
     const mask = wallMask(map, tileset.cellSize, width, height);
     drawWalls(ctx, mask, width, height, colorScheme.wand, tileset.cellSize);
-        await loadDecorations(furniture);
-    const sprites = createDecorations();
     const lamps = placeDetails(ctx, map, tileset.cellSize, sprites, furniture);
     placeGate(ctx, map, tileset.cellSize, sprites, 'P');
-    placeGate(ctx, map, tileset.cellSize, sprites, 'A');
+    let exitGate = placeExitGate(ctx, map, tileset.cellSize, sprites);
     const coins = findCoins(map, tileset.cellSize);
-    const coinFrames = loadCoinFrames();
-    drawAmbientShadows(ctx, mask, lamps);
+    const shadow = drawAmbientShadows(ctx, mask, lamps);
     const base = canvas(width, height);
-    base.getContext('2d', { willReadFrequently: true }).drawImage(ctx.canvas, 0, 0);
+    const baseCtx = base.getContext('2d', { willReadFrequently: true });
+    baseCtx.drawImage(ctx.canvas, 0, 0);
     const lights = lamps.map(lamp => ({ ...lamp, patch: null }));
     // Never baked into "base" (same reasoning as the flame sprites above):
     // only drawLights() paints a coin, so restoring its patch from "base"
@@ -527,6 +586,30 @@ export async function renderMap(ctx, map, tileset, decor = {}) {
             const c = coins.splice(best, 1)[0];
             const r = coinRadius;
             return { x: Math.round(c.x - r), y: Math.round(c.y - r), w: Math.round(r * 2), h: Math.round(r * 2) };
+        },
+        /** Ausgangstor oeffnen (Schluessel gefunden): geschlossenes Bild durch
+         *  das offene ersetzen - inkl. gleicher Schattierung wie beim ersten
+         *  Render. Gibt das geaenderte Rechteck zurueck (oder null). */
+        openExitGate() {
+            if (!exitGate) return null;
+            const { x, y, w, h, under, open } = exitGate;
+            exitGate = null;
+            const patch = canvas(w, h);
+            const pc = patch.getContext('2d');
+            pc.drawImage(under, 0, 0);
+            drawGateImage(pc, open, x, y);
+            pc.imageSmoothingEnabled = true;
+            pc.drawImage(shadow, -x, -y, width, height);
+            baseCtx.clearRect(x, y, w, h);
+            baseCtx.drawImage(patch, x, y);
+            ctx.clearRect(x, y, w, h);
+            ctx.drawImage(patch, x, y);
+            // Lichtflecken, die das Tor ueberdecken, neu berechnen lassen.
+            for (const lamp of lights) {
+                if (lamp.x + LIGHT_RADIUS > x && lamp.x - LIGHT_RADIUS < x + w &&
+                    lamp.y + LIGHT_RADIUS > y && lamp.y - LIGHT_RADIUS < y + h) lamp.patch = null;
+            }
+            return { x, y, w, h };
         },
         /** Restore an arbitrary rectangle from the baked base layer. Used by
          *  the player sprite to erase its previous position each frame. */

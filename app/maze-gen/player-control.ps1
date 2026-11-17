@@ -53,15 +53,32 @@ function New-Game {
     foreach ($row in @($map.rows)) { $grid += , ([char[]]$row.ToCharArray()) }
 
     $startX = 0; $startY = 0; $total = 0
+    $exitX = -1; $exitY = -1
     for ($y = 0; $y -lt $grid.Count; $y++) {
         for ($x = 0; $x -lt $grid[$y].Length; $x++) {
             $ch = $grid[$y][$x]
             if ($ch -ceq 'P') { $startX = $x; $startY = $y; $grid[$y][$x] = [char]'.' }
             elseif ($ch -ceq 'C') { $total++ }
+            elseif ($ch -ceq 'A') { $exitX = $x; $exitY = $y }
         }
     }
 
+    # Ausgangstor = das offene Randfeld direkt neben 'A' (dort hat der
+    # Generator die Aussenwand geoeffnet). Ohne Schluessel ist NUR dieses
+    # Feld gesperrt - 'A' selbst bleibt begehbar, damit der Gang davor
+    # nicht blockiert wird. Wer es mit Schluessel betritt, hat gewonnen.
+    $gateX = $exitX; $gateY = $exitY
+    $lastRow = $grid.Count - 1
+    foreach ($d in $Directions.Values) {
+        $gx = $exitX + $d[0]; $gy = $exitY + $d[1]
+        if ($gy -lt 0 -or $gy -gt $lastRow -or $gx -lt 0 -or $gx -ge $grid[$gy].Length) { continue }
+        $onEdge = $gx -eq 0 -or $gy -eq 0 -or $gy -eq $lastRow -or $gx -eq $grid[$gy].Length - 1
+        if ($onEdge -and $grid[$gy][$gx] -cne '#') { $gateX = $gx; $gateY = $gy; break }
+    }
+
     @{
+        GateX     = $gateX
+        GateY     = $gateY
         Stamp     = (Get-Item $Path).LastWriteTimeUtc.Ticks
         Grid      = $grid
         X         = $startX
@@ -104,15 +121,20 @@ function Invoke-Move {
 
     $ch = $Game.Grid[$ny][$nx]
     if ($ch -ceq '#' -or $ch -ceq ' ') { return $false }
-    if ($ch -ceq 'A' -and -not $Game.HasKey) {
-        $Game.Message = "Der Ausgang ist verschlossen - such den Schl${ue}ssel!"
+    $isGate = $nx -eq $Game.GateX -and $ny -eq $Game.GateY
+    if ($isGate -and -not $Game.HasKey) {
+        $Game.Message = "Das Tor ist verschlossen - such den Schl${ue}ssel!"
         return $false
     }
 
     $Game.X = $nx
     $Game.Y = $ny
 
-    if ($ch -ceq 'C') {
+    if ($isGate) {
+        $Game.Won = $true
+        $Game.Message = "Geschafft! M${ue}nzen: $($Game.Coins)/$($Game.Total)"
+    }
+    elseif ($ch -ceq 'C') {
         $Game.Grid[$ny][$nx] = [char]'.'
         $Game.Coins++
         $Game.Collected.Add([ordered]@{ x = $nx; y = $ny })
@@ -120,11 +142,7 @@ function Invoke-Move {
     elseif ($ch -ceq 'K') {
         $Game.Grid[$ny][$nx] = [char]'.'
         $Game.HasKey = $true
-        $Game.Message = "Schl${ue}ssel gefunden!"
-    }
-    elseif ($ch -ceq 'A') {
-        $Game.Won = $true
-        $Game.Message = "Geschafft! M${ue}nzen: $($Game.Coins)/$($Game.Total)"
+        $Game.Message = "Schl${ue}ssel gefunden - das Tor ist offen!"
     }
     return $true
 }

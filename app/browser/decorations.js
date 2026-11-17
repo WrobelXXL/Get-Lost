@@ -42,28 +42,39 @@ export async function loadDecorations(furniture = []) {
     if (cached) return cached;
 
     const sprites = {};
+    // Alle Bilder GLEICHZEITIG laden (nicht eins nach dem anderen) - das
+    // spart beim Seitenaufruf spuerbar Zeit. Fehlende Bilder werden
+    // uebersprungen (Warnung in der Konsole).
+    const load = (src, warning) => loadImageAsCanvas(src).catch(() => { console.warn(warning); return null; });
 
-    // Load all built-in sprites from assets/furniture/
-    for (const name of BUILTIN_SPRITES) {
-        try {
-            sprites[name] = await loadImageAsCanvas(`${ASSET_PATH}/${name}.png`);
-        } catch (e) {
-            console.warn(`Built-in sprite "${name}" not found, skipping.`);
-        }
-    }
+    // Built-in sprites from assets/furniture/
+    const builtins = BUILTIN_SPRITES.map(name =>
+        load(`${ASSET_PATH}/${name}.png`, `Built-in sprite "${name}" not found, skipping.`));
+    // Config-driven sprites (image/sprite field from config.yml) override them.
+    // "lamp" wird als Wandfackel gezeichnet (sprites.torch).
+    const configured = furniture.filter(entry => entry.sprite).map(entry =>
+        load(entry.sprite, `Sprite for "${entry.type}" not found at ${entry.sprite}, using built-in.`));
+    // Tor-Bilder (zum Bearbeiten in public/assets/). Fehlen sie, zeichnet
+    // mapRenderer.js das Tor wie frueher aus zwei einzelnen Saeulen.
+    // *_closed_new = Ausgangstor, solange der Schluessel fehlt.
+    const GATES = ['gate-horizontal', 'gate-vertical', 'gate-horizontal_closed_new', 'gate-vertical_closed_new'];
+    const gates = GATES.map(name => load(`/assets/${name}.png`, `Gate sprite "${name}" not found, using pillars.`));
 
-    // Load/override with config-driven sprites (sprite field from config.yml)
-    for (const entry of furniture) {
-        if (!entry.sprite) continue;
-        try {
-            sprites[entry.type] = await loadImageAsCanvas(entry.sprite);
-        } catch (e) {
-            console.warn(`Sprite for "${entry.type}" not found at ${entry.sprite}, using built-in.`);
-        }
-    }
+    const [builtinImgs, configuredImgs, gateImgs] = await Promise.all([
+        Promise.all(builtins), Promise.all(configured), Promise.all(gates),
+    ]);
+    BUILTIN_SPRITES.forEach((name, i) => { if (builtinImgs[i]) sprites[name] = builtinImgs[i]; });
+    furniture.filter(entry => entry.sprite).forEach((entry, i) => {
+        if (configuredImgs[i]) sprites[entry.type === 'lamp' ? 'torch' : entry.type] = configuredImgs[i];
+    });
+    GATES.forEach((name, i) => { if (gateImgs[i]) sprites[name] = gateImgs[i]; });
 
     cached = {
         pillar: sprites['pillar'],
+        gateHorizontal: sprites['gate-horizontal'],
+        gateVertical: sprites['gate-vertical'],
+        gateHorizontalClosed: sprites['gate-horizontal_closed_new'],
+        gateVerticalClosed: sprites['gate-vertical_closed_new'],
         flames: [
             sprites['flame-0'],
             sprites['flame-1'],

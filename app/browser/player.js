@@ -123,7 +123,12 @@ export function createPlayer({ map, cellSize, scene, spriteUrl = 'player.png', a
             const rect = scene.removeCoinAt(p.x, p.y);
             if (rect) pending.push(rect);
         }
-        if (state.hasKey && !hasKey && keyRect) pending.push(keyRect);
+        if (state.hasKey && !hasKey) {
+            if (keyRect) pending.push(keyRect);
+            // Schluessel gefunden -> Ausgangstor sofort offen zeigen.
+            const gateRect = scene.openExitGate?.();
+            if (gateRect) pending.push(gateRect);
+        }
         hasKey = state.hasKey;
         coins = state.coins;
         total = state.totalCoins;

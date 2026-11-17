@@ -185,7 +185,7 @@ async function loadNextLevel(nextLevel) {
 
 /** Legt die neue Karte in Ausgangsrichtung neben die alte und berechnet den
  *  Laufweg: Ausgangsfeld -> Tor -> Dunkelheit -> Tor -> Eingangsfeld. */
-function planTransition(oldWorld, newWorld, exit) {
+function planTransition(oldWorld, newWorld, exit, start) {
     const tOld = oldWorld.tileset.cellSize, tNew = newWorld.tileset.cellSize;
     const entry = gateGeometry(newWorld.map, 'P', tNew, OPPOSITE[exit.side]);
     const oldW = oldWorld.canvas.width, oldH = oldWorld.canvas.height;
@@ -213,7 +213,7 @@ function planTransition(oldWorld, newWorld, exit) {
     const entryE = add(entry.e, origin), entryC = add(entry.c, origin);
     // Vor dem Eingang erst auf die Achse des Tores einschwenken, dann hinein.
     const beforeEntry = add(entryE, entry.n, gap / 2);
-    const path = buildPath([exit.c, exit.e, q, p2, beforeEntry, entryE, entryC]);
+    const path = buildPath([start, exit.e, q, p2, beforeEntry, entryE, entryC]);
     return { origin, path, entry, newW, newH };
 }
 
@@ -230,6 +230,9 @@ async function runLevelTransition(oldWorld) {
 
     const tOld = oldWorld.tileset.cellSize;
     const exit = gateGeometry(oldWorld.map, 'A', tOld, 'south');
+    // Gewonnen wird erst auf dem Torfeld am Kartenrand (nicht mehr auf 'A'),
+    // also startet der Laufweg dort, wo die Figur gerade steht.
+    const start = oldWorld.player.pixelPosition();
 
     // ── Buehne: beide Karten liegen in einem fixierten Container. Ursprung
     //    der "Welt" ist die linke obere Ecke der alten Karte; die Kamera
@@ -271,7 +274,7 @@ async function runLevelTransition(oldWorld) {
 
     if (newWorld) {
         tNew = newWorld.tileset.cellSize;
-        plan = planTransition(oldWorld, newWorld, exit);
+        plan = planTransition(oldWorld, newWorld, exit, start);
         path = plan.path;
         putOnStage(newWorld.canvas, camStart.x + plan.origin.x, camStart.y + plan.origin.y);
         incoming = newWorld;
@@ -298,7 +301,7 @@ async function runLevelTransition(oldWorld) {
         camEnd = { x: Math.round(pr.left) - plan.origin.x, y: Math.round(pr.top) - plan.origin.y };
     } else {
         // Letztes Level: durch das Tor hinaus in die Dunkelheit laufen.
-        path = buildPath([exit.c, exit.e, add(exit.e, exit.n, tOld * 3)]);
+        path = buildPath([start, exit.e, add(exit.e, exit.n, tOld * 3)]);
     }
 
 
@@ -387,10 +390,17 @@ createWorld({
     level: window.__PLAYER_LEVEL__ ?? 1,
     canvas: document.getElementById('map'),
     hidden: false,
-}).then(world => {
+}).then(async world => {
     current = world;
     alignCanvas(world.canvas);
+    // Erst sichtbar machen, wenn auch Figur (Position vom Server + Bild) da
+    // ist - so erscheint die Karte auf einen Schlag komplett.
+    await Promise.all([
+        waitFor(() => world.player.isReady, 2000),
+        world.player.img.decode().catch(() => {}),
+    ]);
     syncAnimation();
+    world.canvas.style.visibility = '';
 }).catch(err => {
     console.error('renderMap failed:', err);
     document.body.style.color = '#e8dcc0';

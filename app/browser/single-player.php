@@ -33,7 +33,8 @@ $playerApiUrl = getenv('PLAYER_API_URL') ?: 'http://localhost:8081';
     <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-    <canvas id="map" class="map-canvas"></canvas>
+    <!-- Unsichtbar, bis game.js das erste fertige Bild (Karte + Figur) gezeichnet hat. -->
+    <canvas id="map" class="map-canvas" style="visibility:hidden"></canvas>
 
     <script>
         window.__MAP__ = <?= json_encode($payload['map'], JSON_THROW_ON_ERROR) ?>;

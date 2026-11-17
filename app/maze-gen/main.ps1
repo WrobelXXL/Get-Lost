@@ -628,8 +628,13 @@ function Read-MazeLevelConfigs {
             if ($currentItem) { $current.Furniture += $currentItem }
             $currentItem = @{ Type = ConvertFrom-YamlScalar $Matches[1]; Probability = 0; Dependencies = 'corridor'; Sprite = $null }
         }
-        elseif ($currentItem -and $line -match '^\s*sprite:\s*(.*)$') {
-            $currentItem.Sprite = ConvertFrom-YamlScalar $Matches[1]
+        elseif ($currentItem -and $line -match '^\s*(?:sprite|image):\s*(.*)$') {
+            # "image" und "sprite" sind gleichwertig. Ein Repo-Pfad wie
+            # public/assets/furniture/x.png wird zur Browser-URL
+            # /assets/furniture/x.png (Docker kopiert public/assets/ nach assets/).
+            $spritePath = (ConvertFrom-YamlScalar $Matches[1]) -replace '\\', '/'
+            if ($spritePath -match '^(?:\./)?public/(.*)$') { $spritePath = '/' + $Matches[1] }
+            $currentItem.Sprite = $spritePath
         }
         elseif ($currentItem -and $line -match '^\s*probability:\s*(\d+)\s*(?:#.*)?$') {
             $probabilityValue = [int]$Matches[1]
