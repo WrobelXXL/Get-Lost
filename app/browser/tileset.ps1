@@ -80,7 +80,7 @@ function canvas {
 }
 
 # Draw one 16x16 stone into a 32x32 bitmap.
-function Draw-Stone {
+function DrawStone {
     param(
         $ctx,
         $stone,
