@@ -1,0 +1,56 @@
+.Main-Cage {
+    width: 1900px;
+    height: 925px;
+    align-self: left;
+    background-image: url(thumbnail.png);
+    font-family: 'Geist Pixel';
+}
+
+.Title-Cage {
+    width: 1650px;
+    height: 25%;
+    align-content: center;
+    padding-left:42%;
+    font-size: 75px;
+    color:grey;
+    font-family: 'Geist Pixel';
+}
+
+.Button-Cage{
+    width: 850px;
+    height: 55%;
+    align-content: center;
+    padding-left: 39%;
+    padding-bottom: 200px;
+    color:grey;
+    font-family: 'Geist Pixel';
+    background-color: black;
+}
+.Sp-Button {
+    height: 150px;
+    width: 500px;
+    background-color: transparent;
+    margin-bottom: 10px;
+    font-size: 40px;
+    color:grey;
+    font-family: 'Geist Pixel';
+}
+
+.Mp-Button {
+    height: 150px;
+    width: 500px;
+    background-color: transparent;
+    font-size: 40px;
+    color:grey;
+    font-family: 'Geist Pixel';
+}
+
+.Title-desc {
+    margin-left: 110px;
+    padding-bottom: 75px;
+}
+.Border-Cage {
+    width: 250px;
+    height: 100%;
+    background-color: black;
+}
