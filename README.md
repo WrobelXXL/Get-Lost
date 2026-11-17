@@ -10,8 +10,8 @@ Basis:
 - Bewegung
 - Map/Level Generierung
 - Key
-- GUI via PHP Webbrowser
-- Starten via Docker, Spielmechanik in powershell (Linux oder windows docker? kleines linux destro. k ich würde ALpine nehmen)
+- GUI als Windows-Programm (PowerShell + WPF), früher PHP-Webbrowser
+- Starten per Doppelklick auf `Get-Lost.exe`, Spielmechanik komplett in PowerShell (früher Docker)
 
 Erweiterung:
 - Skin Shop
@@ -34,14 +34,20 @@ Arbeitsteilung:
 ```
 Get-Lost
 ├── app
-│   ├── browser (*Michail *ai)
-│   ├── control (*Lion)
+│   ├── wpf (*Michail *ai)      Fenster, Grafik, Spielablauf (WPF)
+│   │   ├── Start-GetLost.ps1   Startpunkt
+│   │   ├── MainWindow.xaml     Start-/Ladebildschirm, Spielansicht
+│   │   ├── mapRenderer.ps1     zeichnet die Karte (Boden, Mauern, Deko, Licht)
+│   │   ├── game.ps1            Spielablauf + Levelwechsel
+│   │   ├── player.ps1          Spielfigur + Steuerung
+│   │   └── gameLogic.ps1       Spielregeln (Kollision, Münzen, Schlüssel, Tor)
 │   └── maze-gen (*Babsi)
-├── design
+│       ├── main.ps1            erzeugt die Level
+│       └── config.yml          Einstellungen pro Level (Größe, Farben, Möbel, ...)
+├── public                      Bilder (Möbel, Tore, Münzen, Spielfigur)
 ├── tools
-├── .dockerignore
-├── docker-compose.yml (*Pascal)
-├── Dockerfile (*Pascal)
+│   ├── Build-Exe.ps1           baut dist/Get-Lost.exe
+│   └── generate-sprites.ps1
 └── README.md
 ```
 
@@ -49,22 +55,26 @@ Get-Lost
 
 ### Wie Installiere ich das Game?
 
+Nichts zu installieren: `dist/Get-Lost.exe` kopieren und doppelklicken (Windows 10/11).
+
+Die .exe bauen (aus dem Ordner `Get-Lost`):
 ```
-curl -fsSL https://raw.githubusercontent.com/WrobelXXL/Get-Lost/main/install.sh | bash
+powershell -ExecutionPolicy Bypass -File tools\Build-Exe.ps1
 ```
+Beim ersten Mal wird dafür das PowerShell-Modul `ps2exe` installiert.
 
 ### Wie startet sich das Spiel?
 
-Hier muss noch was praktisches ausgedacht werden...
-
-Bisher:
+- Fertiges Programm: `dist\Get-Lost.exe` doppelklicken
+- Beim Entwickeln direkt aus dem Code:
 ```
 cd Get-Lost
-docker compose up --build
+powershell -ExecutionPolicy Bypass -File app\wpf\Start-GetLost.ps1
 ```
 
-Verfügbar unter [http://localhost:8080](http://localhost:8080)
+Steuerung: Pfeiltasten oder WASD, `Esc` = zurück zum Startbildschirm.
 
+Eigene Einstellungen: Eine geänderte `config.yml` neben die `Get-Lost.exe` legen - sie wird dann statt der eingebauten benutzt.
 
 ### Wie soll Multiplayer funktionieren?
 Man kann über ein Knopf ein Game Starten "Im LAN"
@@ -73,12 +83,12 @@ Andere Spieler können dann beitreten indem die auf "Im LAN suchen" klicken
 
 ### Maps
 
-Die Maps sind unter den Links erreichbar:
+Die Level werden bei jedem Spielstart neu mit `app/maze-gen/main.ps1` aus der `config.yml` erzeugt (Level 1, 2, 3, ...). Nach dem letzten Level geht es zurück zum Startbildschirm.
 
-http://localhost:8080/?level=1  
-http://localhost:8080/?level=2  
-http://localhost:8080/?level=3  
-usw...
+Zum Testen geht der Generator auch allein:
+```
+powershell -ExecutionPolicy Bypass -File app\maze-gen\main.ps1 -Level 1
+```
 
 ### Mechanics
 
